@@ -1,0 +1,13 @@
+opencv-python-headless
+numpy
+pillow
+ultralytics
+pandas
+tqdm
+seaborn
+gitpython
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+python-dotenv
