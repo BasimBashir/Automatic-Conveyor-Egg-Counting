@@ -1,5 +1,0 @@
-torch==2.0.1          # PyTorch for model inference
-torchvision==0.15.2   # PyTorch utilities for image processing
-opencv-python==4.8.1  # OpenCV for image and video processing
-numpy==1.24.4         # Numerical computations
-pillow==10.0.0        # Image handling

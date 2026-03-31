@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(bash \"C:/Users/mianx/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.6/scripts/start-server.sh\" --project-dir \"C:/Users/mianx/OneDrive/Desktop/Automated-Egg-Counting-System\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(.venv/Scripts/pip.exe install:*)",
+      "Bash(.venv/Scripts/uvicorn.exe app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl:*)",
+      "Bash(taskkill //F //PID 21380)"
+    ]
+  }
+}

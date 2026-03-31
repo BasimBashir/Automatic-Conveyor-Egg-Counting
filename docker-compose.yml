@@ -2,7 +2,7 @@ services:
   egg-counter:
     build: .
     ports:
-      - "8000:8000"
+      - "5580:5580"
     volumes:
       - ./app/uploads:/app/app/uploads
       - ./app/outputs:/app/app/outputs
