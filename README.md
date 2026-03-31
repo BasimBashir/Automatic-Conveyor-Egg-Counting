@@ -25,8 +25,8 @@ A production-ready egg detection and counting system built with **YOLOv5** and *
 ### Option A: Docker (recommended)
 
 ```bash
-git clone https://github.com/MianUsamaIjaz/Automated-Egg-Counting-System.git
-cd Automated-Egg-Counting-System
+git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
+cd Automatic-Conveyor-Egg-Counting
 
 # Build and run (GPU)
 docker compose up --build
@@ -37,8 +37,8 @@ Open **http://localhost:5580**
 ### Option B: Local Setup
 
 ```bash
-git clone https://github.com/MianUsamaIjaz/Automated-Egg-Counting-System.git
-cd Automated-Egg-Counting-System
+git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
+cd Automatic-Conveyor-Egg-Counting
 
 # Create virtual environment
 python -m venv .venv

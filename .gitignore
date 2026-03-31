@@ -1,0 +1,7 @@
+.claude
+docs
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
