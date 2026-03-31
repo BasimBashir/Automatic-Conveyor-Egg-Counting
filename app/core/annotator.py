@@ -38,13 +38,20 @@ def draw_trail(img, points, base_color, max_length=20):
     n = len(pts)
     if n < 2:
         return
+    overlay = img.copy()
     for i in range(1, n):
-        alpha = i / n
-        thickness = max(1, int(alpha * 3))
-        r = int(base_color[0] * alpha)
-        g = int(base_color[1] * alpha)
-        b = int(base_color[2] * alpha)
-        cv2.line(img, pts[i - 1], pts[i], (r, g, b), thickness, cv2.LINE_AA)
+        t = i / n
+        opacity = t * 0.6
+        r = int(base_color[0] * (0.3 + 0.7 * t))
+        g = int(base_color[1] * (0.3 + 0.7 * t))
+        b = int(base_color[2] * (0.3 + 0.7 * t))
+        color = (r, g, b)
+        cv2.line(overlay, pts[i - 1], pts[i], color, 1, cv2.LINE_AA)
+        if i == n - 1:
+            cv2.circle(overlay, pts[i], 2, base_color, -1, cv2.LINE_AA)
+        elif i % 3 == 0:
+            cv2.circle(overlay, pts[i], 1, color, -1, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
 def draw_roi_line(img, roi_y, width, frame_num):
@@ -68,11 +75,15 @@ def draw_roi_line(img, roi_y, width, frame_num):
 
 
 def draw_crossing_flash(img, cx, cy, intensity):
-    radius = int(20 + 15 * intensity)
-    alpha = intensity * 0.5
     overlay = img.copy()
-    cv2.circle(overlay, (cx, cy), radius, COLORS["flash"], -1, cv2.LINE_AA)
-    cv2.circle(overlay, (cx, cy), radius + 4, COLORS["counted"], 2, cv2.LINE_AA)
+    # Expanding ring ripple instead of solid sphere
+    ring_radius = int(8 + 20 * (1.0 - intensity))
+    ring_thickness = max(1, int(2 * intensity))
+    alpha = intensity * 0.6
+    cv2.circle(overlay, (cx, cy), ring_radius, COLORS["counted"], ring_thickness, cv2.LINE_AA)
+    if intensity > 0.5:
+        inner_r = int(4 * intensity)
+        cv2.circle(overlay, (cx, cy), inner_r, COLORS["flash"], -1, cv2.LINE_AA)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
 
 
@@ -183,11 +194,10 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
     flash_events.clear()
     flash_events.extend(active_flashes)
 
-    # 5. Centroid dots
+    # 5. Centroid dots — small and clean
     for obj_id, (cx, cy) in objects.items():
         color = COLORS["counted"] if obj_id in counted_ids else COLORS["uncounted"]
-        cv2.circle(annotated, (int(cx), int(cy)), 4, color, -1, cv2.LINE_AA)
-        cv2.circle(annotated, (int(cx), int(cy)), 6, color, 1, cv2.LINE_AA)
+        cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
     # 6. Dashboard
     tracker_total = max(len(objects), 0)

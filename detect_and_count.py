@@ -1,3 +1,4 @@
+import platform
 import torch
 import cv2
 import numpy as np
@@ -8,7 +9,8 @@ import time
 from collections import OrderedDict, deque
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-pathlib.PosixPath = pathlib.WindowsPath
+if platform.system() != "Windows":
+    pathlib.WindowsPath = pathlib.PosixPath
 
 MODEL_PATH = r"best.pt"
 
@@ -122,18 +124,24 @@ def draw_rounded_rect(img, pt1, pt2, color, radius=12, thickness=-1, alpha=0.85)
 
 
 def draw_trail(img, points, base_color, max_length=20):
-    """Draw a fading motion trail from a deque of points."""
+    """Draw a thin gradient trail with small dot markers."""
     pts = list(points)
     n = len(pts)
     if n < 2:
         return
+    overlay = img.copy()
     for i in range(1, n):
-        alpha = i / n  # 0 = oldest, 1 = newest
-        thickness = max(1, int(alpha * 3))
-        r = int(base_color[0] * alpha)
-        g = int(base_color[1] * alpha)
-        b = int(base_color[2] * alpha)
-        cv2.line(img, pts[i - 1], pts[i], (r, g, b), thickness, cv2.LINE_AA)
+        t = i / n
+        r = int(base_color[0] * (0.3 + 0.7 * t))
+        g = int(base_color[1] * (0.3 + 0.7 * t))
+        b = int(base_color[2] * (0.3 + 0.7 * t))
+        color = (r, g, b)
+        cv2.line(overlay, pts[i - 1], pts[i], color, 1, cv2.LINE_AA)
+        if i == n - 1:
+            cv2.circle(overlay, pts[i], 2, base_color, -1, cv2.LINE_AA)
+        elif i % 3 == 0:
+            cv2.circle(overlay, pts[i], 1, color, -1, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
 def draw_roi_line(img, roi_y, width, frame_num):
@@ -163,12 +171,15 @@ def draw_roi_line(img, roi_y, width, frame_num):
 
 
 def draw_crossing_flash(img, cx, cy, intensity):
-    """Draw a radial flash effect when an egg crosses the line."""
-    radius = int(20 + 15 * intensity)
-    alpha = intensity * 0.5
+    """Draw an expanding ring ripple when an egg crosses the line."""
     overlay = img.copy()
-    cv2.circle(overlay, (cx, cy), radius, COLORS["flash"], -1, cv2.LINE_AA)
-    cv2.circle(overlay, (cx, cy), radius + 4, COLORS["counted"], 2, cv2.LINE_AA)
+    ring_radius = int(8 + 20 * (1.0 - intensity))
+    ring_thickness = max(1, int(2 * intensity))
+    alpha = intensity * 0.6
+    cv2.circle(overlay, (cx, cy), ring_radius, COLORS["counted"], ring_thickness, cv2.LINE_AA)
+    if intensity > 0.5:
+        inner_r = int(4 * intensity)
+        cv2.circle(overlay, (cx, cy), inner_r, COLORS["flash"], -1, cv2.LINE_AA)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
 
 
@@ -273,7 +284,7 @@ def draw_bbox(img, x1, y1, x2, y2, counted, conf):
 
 def load_model(model_path=MODEL_PATH):
     """Load the YOLOv5 custom model."""
-    model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path)
+    model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
     return model
 
 
@@ -482,8 +493,7 @@ def detect_and_annotate_video(
                 color = COLORS["counted"]
             else:
                 color = COLORS["uncounted"]
-            cv2.circle(annotated, (int(cx), int(cy)), 4, color, -1, cv2.LINE_AA)
-            cv2.circle(annotated, (int(cx), int(cy)), 6, color, 1, cv2.LINE_AA)
+            cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
         # 6. Dashboard
         draw_dashboard(

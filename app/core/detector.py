@@ -1,10 +1,12 @@
+import platform
 import torch
 import pathlib
 import warnings
 import numpy as np
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-pathlib.PosixPath = pathlib.WindowsPath
+if platform.system() != "Windows":
+    pathlib.WindowsPath = pathlib.PosixPath
 
 _model = None
 
@@ -13,7 +15,7 @@ def load_model(model_path: str) -> object:
     """Load YOLOv5 model. Cached as singleton."""
     global _model
     if _model is None:
-        _model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path)
+        _model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
     return _model
 
 

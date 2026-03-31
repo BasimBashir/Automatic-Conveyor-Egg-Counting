@@ -1,5 +1,6 @@
 services:
   egg-counter:
+    image: basim123/egg-counter-cuda:latest
     build: .
     ports:
       - "5580:5580"

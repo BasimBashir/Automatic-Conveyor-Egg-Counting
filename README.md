@@ -22,7 +22,16 @@ A production-ready egg detection and counting system built with **YOLOv5** and *
 
 ## Quick Start
 
-### Option A: Docker (recommended)
+### Option A: Docker Pull (fastest)
+
+```bash
+docker pull basim123/egg-counter-cuda:latest
+docker run --gpus all -p 5580:5580 basim123/egg-counter-cuda:latest
+```
+
+Open **http://localhost:5580**
+
+### Option B: Docker Build from Source
 
 ```bash
 git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
@@ -34,7 +43,7 @@ docker compose up --build
 
 Open **http://localhost:5580**
 
-### Option B: Local Setup
+### Option C: Local Setup
 
 ```bash
 git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
@@ -285,11 +294,20 @@ Automated-Egg-Counting-System/
 
 ## Docker
 
-### Build and run
+### Pull from Docker Hub
+
+```bash
+docker pull basim123/egg-counter-cuda:latest
+docker run --gpus all -p 5580:5580 basim123/egg-counter-cuda:latest
+```
+
+### Build from source
 
 ```bash
 docker compose up --build
 ```
+
+This builds and tags the image as `basim123/egg-counter-cuda:latest`.
 
 ### GPU support
 
@@ -318,7 +336,7 @@ Remove the `deploy.resources.reservations` block from `docker-compose.yml` to ru
 | **Animated dashed red line** | ROI counting line with directional arrows |
 | **Amber/yellow dots** | Tracked eggs that haven't crossed the line yet |
 | **Green dots** | Eggs that have been counted |
-| **Fading trails** | Motion path of each tracked egg |
-| **Yellow flash** | Burst effect when an egg crosses the line |
+| **Thin gradient trails** | Motion path with dot markers for each tracked egg |
+| **Ripple ring** | Expanding ring effect when an egg crosses the line |
 | **Corner-accent boxes** | Bounding boxes with confidence % labels |
 | **Dashboard panel** | Live egg count, in-frame count, FPS, progress bar |
