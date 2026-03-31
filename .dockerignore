@@ -1,0 +1,12 @@
+.venv
+.git
+__pycache__
+*.pyc
+output.mp4
+output.mkv
+*.egg-info
+.claude
+docs
+app/uploads/*
+app/outputs/*
+.superpowers
