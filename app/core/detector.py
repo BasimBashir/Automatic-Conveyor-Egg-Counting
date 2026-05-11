@@ -1,28 +1,26 @@
 import platform
-import torch
 import pathlib
 import warnings
 import numpy as np
+
+from app.core.model_cache import get_model, preload_model  # noqa: F401 — re-exported for back-compat
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 if platform.system() != "Windows":
     pathlib.WindowsPath = pathlib.PosixPath
 
-_model = None
+
+def load_model(model_path: str):
+    """Backward-compatible shim — delegates to the shared model cache."""
+    return get_model(model_path)
 
 
-def load_model(model_path: str) -> object:
-    """Load YOLOv5 model. Cached as singleton."""
-    global _model
-    if _model is None:
-        _model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
-    return _model
-
-
-def detect_frame(model, frame: np.ndarray, conf: float = 0.25) -> list[dict]:
-    """Run detection on a single frame. Returns list of detection dicts."""
+def detect_frame(model, frame: np.ndarray, conf: float = 0.25,
+                 iou: float = 0.45, imgsz: int = 640) -> list[dict]:
+    """Run YOLOv5 detection on a single frame. Returns list of detection dicts."""
     model.conf = conf
-    results = model(frame)
+    model.iou = iou
+    results = model(frame, size=imgsz)
     detections = results.pandas().xyxy[0]
     det_info = []
     for _, det in detections.iterrows():

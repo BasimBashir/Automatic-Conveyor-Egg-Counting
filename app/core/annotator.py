@@ -41,7 +41,6 @@ def draw_trail(img, points, base_color, max_length=20):
     overlay = img.copy()
     for i in range(1, n):
         t = i / n
-        opacity = t * 0.6
         r = int(base_color[0] * (0.3 + 0.7 * t))
         g = int(base_color[1] * (0.3 + 0.7 * t))
         b = int(base_color[2] * (0.3 + 0.7 * t))
@@ -76,7 +75,6 @@ def draw_roi_line(img, roi_y, width, frame_num):
 
 def draw_crossing_flash(img, cx, cy, intensity):
     overlay = img.copy()
-    # Expanding ring ripple instead of solid sphere
     ring_radius = int(8 + 20 * (1.0 - intensity))
     ring_thickness = max(1, int(2 * intensity))
     alpha = intensity * 0.6
@@ -160,14 +158,12 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
     annotated = frame.copy()
     height, width = annotated.shape[:2]
 
-    # 1. Motion trails
     for obj_id, trail_pts in trails.items():
         if obj_id in counted_ids:
             draw_trail(annotated, trail_pts, COLORS["counted"])
         else:
             draw_trail(annotated, trail_pts, COLORS["trail"])
 
-    # 2. Bounding boxes
     for info in detections:
         cx = (info["x1"] + info["x2"]) // 2
         cy = (info["y1"] + info["y2"]) // 2
@@ -179,11 +175,9 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
         draw_bbox(annotated, info["x1"], info["y1"],
                   info["x2"], info["y2"], is_counted, info["conf"])
 
-    # 3. ROI line
     if roi_y is not None:
         draw_roi_line(annotated, roi_y, width, frame_num)
 
-    # 4. Crossing flashes
     active_flashes = []
     for (fx, fy, f_start) in flash_events:
         age = frame_num - f_start
@@ -194,17 +188,14 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
     flash_events.clear()
     flash_events.extend(active_flashes)
 
-    # 5. Centroid dots — small and clean
     for obj_id, (cx, cy) in objects.items():
         color = COLORS["counted"] if obj_id in counted_ids else COLORS["uncounted"]
         cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
-    # 6. Dashboard
     tracker_total = max(len(objects), 0)
     draw_dashboard(annotated, total_count, len(objects), tracker_total,
                    frame_num, total_frames, is_stream, fps_display, width)
 
-    # 7. ROI label
     if roi_y is not None:
         cv2.putText(annotated, "COUNTING LINE", (width - 200, roi_y - 8),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS["roi_line"], 2, cv2.LINE_AA)
@@ -224,7 +215,7 @@ def annotate_image_detections(frame, det_info):
         cy = (info["y1"] + info["y2"]) // 2
         cv2.circle(annotated, (cx, cy), 4, COLORS["accent"], -1, cv2.LINE_AA)
 
-    draw_rounded_rect(annotated, (8, 8), (250, 55), COLORS["panel_bg"], radius=8, alpha=0.85)
+    draw_rounded_rect(annotated, (8, 8), (280, 55), COLORS["panel_bg"], radius=8, alpha=0.85)
     cv2.putText(annotated, f"{egg_count}", (18, 45),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.3, COLORS["counted"], 3, cv2.LINE_AA)
     tw = cv2.getTextSize(f"{egg_count}", cv2.FONT_HERSHEY_SIMPLEX, 1.3, 3)[0][0]

@@ -1,265 +1,36 @@
 # Automated Egg Counting System
 
-A production-ready egg detection and counting system built with **YOLOv5** and **FastAPI**. Provides a CLI tool, REST API, and web dashboard for detecting eggs in images, processing videos with ROI-line counting, and monitoring live RTSP camera streams in real time.
+An end-to-end computer vision system for detecting and counting eggs using **YOLOv8** object detection. Supports image detection, video processing with line-crossing counting, and RTSP live stream monitoring through a web-based dashboard.
 
 ---
 
-## Key Features
+## Table of Contents
 
-| Feature | Description |
-|---------|-------------|
-| **Web Dashboard** | Multi-page dark-themed UI for image detection, video processing, and live stream monitoring |
-| **REST API** | Full API with Swagger docs for integration into other systems |
-| **Image Detection** | Upload an image, get annotated result with egg count |
-| **Video Processing** | Upload a video, independently control playback and counting, download H.264 output |
-| **Live RTSP Stream** | Connect to Hikvision or any RTSP camera, count eggs in real time |
-| **ROI Line Counting** | Centroid tracking counts each egg exactly once as it crosses a configurable line |
-| **Visual Annotations** | Motion trails, animated ROI line, crossing flash effects, corner-accent bounding boxes |
-| **Docker + GPU** | Single-container deployment with NVIDIA GPU support |
-| **Social Media Ready** | ffmpeg H.264 re-encoding with faststart — output plays on WhatsApp, Instagram, etc. |
-
----
-
-## Quick Start
-
-### Option A: Docker Pull (fastest)
-
-```bash
-docker pull basim123/egg-counter-cuda:latest
-docker run --gpus all -p 5580:5580 basim123/egg-counter-cuda:latest
-```
-
-Open **http://localhost:5580**
-
-### Option B: Docker Build from Source
-
-```bash
-git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
-cd Automatic-Conveyor-Egg-Counting
-
-# Build and run (GPU)
-docker compose up --build
-```
-
-Open **http://localhost:5580**
-
-### Option C: Local Setup
-
-```bash
-git clone https://github.com/BasimBashir/Automatic-Conveyor-Egg-Counting.git
-cd Automatic-Conveyor-Egg-Counting
-
-# Create virtual environment
-python -m venv .venv
-
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# Linux / macOS
-source .venv/bin/activate
-```
-
-**Install PyTorch (GPU)** — visit https://pytorch.org/get-started/locally/ for your CUDA version:
-
-```bash
-# Example: CUDA 12.8
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-
-# CPU only
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-```
-
-**Install remaining dependencies:**
-
-```bash
-pip install -r requirements.txt
-```
-
-**Start the server:**
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 5580
-```
-
-Open **http://localhost:5580**
+- [Overview](#overview)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Setup](#setup)
+- [Inference](#inference)
+- [Web Application](#web-application)
+- [Deployment](#deployment)
+  - [Docker Hub — pre-built images](#docker-hub--pre-built-images)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [License](#license)
 
 ---
 
-## Web Dashboard
+## Overview
 
-### Image Detection (`/`)
+This system provides three operational modes:
 
-Upload an image via drag-and-drop or file picker. Shows original and annotated side-by-side with egg count. Download the annotated result.
+| Mode | Description |
+|------|-------------|
+| **Image** | Upload a single image, detect all eggs, return annotated result with count |
+| **Video** | Upload a video file, track eggs across frames, count each egg exactly once as it crosses a configurable ROI (Region of Interest) line |
+| **Stream** | Connect to an RTSP camera feed for real-time egg detection and counting |
 
-### Video Processing (`/video.html`)
-
-1. Upload a video file
-2. Click **Play** to start processing (detections are shown immediately)
-3. Click **Start Counting** to enable ROI line tracking
-4. Watch the live egg count update in the stats panel
-5. Click **Stop** when done, then **Download Output (H.264)** for a social-media-ready file
-
-Play and counting are independent controls — you can watch detections without counting, or toggle counting on/off mid-video.
-
-### Live Stream (`/stream.html`)
-
-1. Enter your RTSP URL (or pre-configure it in `.env`)
-2. Click **Connect** to start the live feed
-3. Click **Start Counting** to begin ROI line tracking
-4. Adjust **ROI Position** and **Confidence** sliders in real time
-
-### API Docs (`/docs`)
-
-Auto-generated Swagger UI with all endpoints documented. Try them interactively.
-
----
-
-## REST API
-
-Base URL: `http://localhost:5580`
-
-### Image
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/image/detect` | Upload image, returns annotated JPEG with `X-Egg-Count` header |
-
-**Example:**
-```bash
-curl -X POST http://localhost:5580/api/image/detect \
-  -F "file=@photo.jpg" \
-  -o annotated.jpg -D -
-```
-
-### Video
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/video/upload` | Upload video file, returns `session_id` |
-| `POST` | `/api/video/{id}/start` | Start processing |
-| `POST` | `/api/video/{id}/stop` | Stop processing |
-| `POST` | `/api/video/{id}/counting/start` | Enable ROI counting |
-| `POST` | `/api/video/{id}/counting/stop` | Disable ROI counting |
-| `GET` | `/api/video/{id}/feed` | MJPEG stream of annotated frames |
-| `GET` | `/api/video/{id}/status` | Current state (egg_count, frame, fps, etc.) |
-| `GET` | `/api/video/{id}/download` | Download H.264 re-encoded output |
-
-**Example:**
-```bash
-# Upload
-curl -X POST http://localhost:5580/api/video/upload -F "file=@video.mp4"
-# Returns: {"session_id": "a1b2c3d4", "filename": "video.mp4"}
-
-# Start processing + counting
-curl -X POST http://localhost:5580/api/video/a1b2c3d4/start
-curl -X POST http://localhost:5580/api/video/a1b2c3d4/counting/start
-
-# Poll status
-curl http://localhost:5580/api/video/a1b2c3d4/status
-
-# Download output
-curl http://localhost:5580/api/video/a1b2c3d4/download -o output.mp4
-```
-
-### Live Stream
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/stream/start` | Start RTSP stream (accepts `{"url": "rtsp://..."}` or uses env) |
-| `POST` | `/api/stream/stop` | Disconnect stream |
-| `POST` | `/api/stream/counting/start` | Enable ROI counting |
-| `POST` | `/api/stream/counting/stop` | Disable ROI counting |
-| `GET` | `/api/stream/feed` | MJPEG stream of live feed |
-| `GET` | `/api/stream/status` | Current state (egg_count, fps, is_connected) |
-
-**Example:**
-```bash
-# Connect to camera
-curl -X POST http://localhost:5580/api/stream/start \
-  -H "Content-Type: application/json" \
-  -d '{"url": "rtsp://admin:pass@192.168.1.100:554/stream"}'
-
-# Enable counting
-curl -X POST http://localhost:5580/api/stream/counting/start
-
-# View live feed in browser
-# Open: http://localhost:5580/api/stream/feed
-```
-
-### Config
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/config` | Get current settings |
-| `PUT` | `/api/config` | Update settings live |
-
-**Example:**
-```bash
-# Get current config
-curl http://localhost:5580/api/config
-
-# Update ROI and confidence
-curl -X PUT http://localhost:5580/api/config \
-  -H "Content-Type: application/json" \
-  -d '{"roi_position": 0.6, "confidence": 0.3}'
-```
-
----
-
-## CLI Usage
-
-The standalone `detect_and_count.py` script works without the web server:
-
-### Image detection
-
-```bash
-python detect_and_count.py path/to/image.jpg
-python detect_and_count.py path/to/image.jpg --save result.jpg
-```
-
-### Video processing with ROI counting
-
-```bash
-python detect_and_count.py path/to/video.mp4 --save output.mp4
-python detect_and_count.py path/to/video.mp4 --roi 0.7 --conf 0.3
-```
-
-### Live RTSP stream
-
-```bash
-python detect_and_count.py "rtsp://user:pass@camera-ip:554/stream"
-```
-
-Press **q** to stop during playback.
-
-### CLI options
-
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `input` | Path to image, video, or RTSP URL | (required) |
-| `--save` | Path to save annotated output | None |
-| `--conf` | Detection confidence threshold | 0.25 |
-| `--model` | Path to YOLOv5 model weights | `best.pt` |
-| `--roi` | ROI line position (0.0=top, 1.0=bottom) | 0.7 |
-| `--max-distance` | Max pixel distance for tracking | 40 |
-| `--max-disappeared` | Frames before dropping a lost track | 50 |
-
----
-
-## Configuration
-
-All settings can be configured via `.env` file or environment variables:
-
-```env
-RTSP_URL=rtsp://user:pass@camera-ip:554/stream
-MODEL_PATH=best.pt
-ROI_POSITION=0.7
-CONFIDENCE=0.25
-MAX_DISTANCE=40
-MAX_DISAPPEARED=50
-```
-
-When using Docker, set these in `docker-compose.yml` or pass them as environment variables.
+The detection model is **YOLOv8** trained on a single-class egg dataset. Tracking uses a bbox-aware centroid tracker with Hungarian assignment that combines IoU and centroid distance, so overlapping or stacked eggs keep distinct IDs and each one is counted independently.
 
 ---
 
@@ -267,76 +38,492 @@ When using Docker, set these in `docker-compose.yml` or pass them as environment
 
 ```
 Automated-Egg-Counting-System/
-├── app/
-│   ├── main.py              # FastAPI app entry point
-│   ├── config.py             # Settings from .env
+├── app/                            # FastAPI web application
+│   ├── main.py                     # App entrypoint
+│   ├── config.py                   # Settings (env-based)
 │   ├── core/
-│   │   ├── detector.py       # YOLOv5 model loading and inference
-│   │   ├── tracker.py        # Centroid-based object tracker
-│   │   ├── counter.py        # ROI line crossing logic
-│   │   ├── annotator.py      # Visual annotations (trails, bbox, dashboard)
-│   │   └── video_processor.py # Background thread processor with MJPEG buffer
+│   │   ├── detector.py             # YOLOv8 model loading & inference
+│   │   ├── tracker.py              # Bbox-aware centroid tracker (Hungarian)
+│   │   ├── counter.py              # EggCounter: ROI line-crossing logic
+│   │   ├── line_counter.py         # Trackerless conveyor counter
+│   │   ├── annotator.py            # Frame annotation (bboxes, trails, dashboard)
+│   │   ├── video_processor.py     # Background video/stream processor
+│   │   ├── model_cache.py          # Thread-safe YOLO model cache
+│   │   ├── runtime_config.py       # Live runtime configuration
+│   │   └── exporter.py             # TensorRT export state machine
 │   ├── routers/
-│   │   ├── image.py          # Image detection endpoint
-│   │   ├── video.py          # Video session management
-│   │   ├── stream.py         # RTSP stream endpoints
-│   │   └── config_router.py  # Live config GET/PUT
-│   └── static/               # Frontend HTML/CSS/JS
-├── detect_and_count.py       # Standalone CLI tool
-├── best.pt                   # Trained YOLOv5 model weights
-├── .env                      # Configuration
-├── requirements.txt
-├── Dockerfile
-└── docker-compose.yml
+│   │   ├── image.py                # POST /api/image/detect
+│   │   ├── video.py                # Video upload, playback, counting
+│   │   ├── stream.py               # RTSP stream management
+│   │   ├── config_router.py        # GET/PATCH /api/config
+│   │   ├── export_router.py        # TensorRT export endpoints
+│   │   └── health_router.py        # GET /health
+│   └── static/                     # Frontend (HTML/CSS/JS)
+│       ├── index.html              # Image detection page
+│       ├── video.html              # Video processing page
+│       ├── stream.html             # Live stream page
+│       ├── css/style.css
+│       └── js/
+├── detect_and_count.py             # Standalone CLI for image/video inference
+├── best.pt                         # Trained model weights
+├── requirements.txt                # Python deps (GPU / CUDA 12.6)
+├── requirements-cpu.txt            # Python deps (CPU only)
+├── Dockerfile                      # GPU container image
+├── Dockerfile.cpu                  # CPU container image
+├── docker-compose.yml              # Docker Compose with GPU support
+├── start.bat                       # Windows quick-start (Docker)
+└── .env                            # Environment variables (optional)
 ```
 
 ---
 
-## Docker
+## Prerequisites
 
-### Pull from Docker Hub
+- **Python** 3.10+
+- **CUDA-compatible GPU** (recommended for inference speed; CPU also supported)
+- **FFmpeg** (required for video re-encoding/download feature)
+- **Docker** (optional, for containerized deployment)
+
+### Hardware Recommendations
+
+| Task | Minimum | Recommended |
+|------|---------|-------------|
+| Inference | CPU (slow) | Any CUDA GPU |
+| Web App | 4 GB RAM | 8+ GB RAM |
+
+---
+
+## Setup
+
+### 1. Clone the project
 
 ```bash
-docker pull basim123/egg-counter-cuda:latest
-docker run --gpus all -p 5580:5580 basim123/egg-counter-cuda:latest
+git clone https://github.com/BasimBashir/Automated-Egg-Counting-System.git
+cd Automated-Egg-Counting-System
 ```
 
-### Build from source
+### 2. Create a virtual environment
+
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/macOS
+source venv/bin/activate
+```
+
+### 3. Install dependencies
+
+```bash
+# GPU
+pip install -r requirements.txt
+
+# CPU only
+pip install -r requirements-cpu.txt
+```
+
+### 4. Verify GPU availability (optional)
+
+```bash
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"CPU\"}')"
+```
+
+---
+
+## Inference
+
+### CLI — Standalone Script
+
+The `detect_and_count.py` script works without the web server for quick testing.
+
+#### Detect eggs in an image
+
+```bash
+python detect_and_count.py path/to/image.jpg
+```
+
+With options:
+
+```bash
+python detect_and_count.py path/to/image.jpg --conf 0.3 --model best.pt --save output.jpg
+```
+
+#### Count eggs in a video
+
+```bash
+python detect_and_count.py path/to/video.mp4
+```
+
+With options:
+
+```bash
+python detect_and_count.py path/to/video.mp4 \
+    --conf 0.25 \
+    --roi 0.7 \
+    --max-distance 40 \
+    --max-disappeared 50 \
+    --save annotated_output.mp4
+```
+
+#### Process an RTSP stream
+
+```bash
+python detect_and_count.py rtsp://user:pass@camera-ip:554/stream
+```
+
+### CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `input` | (required) | Path to image, video, or RTSP URL |
+| `--model` | `best.pt` | Path to YOLOv8 model weights |
+| `--conf` | `0.25` | Detection confidence threshold |
+| `--roi` | `0.7` | ROI line position (0.0=top, 1.0=bottom) |
+| `--max-distance` | `40` | Max pixel distance for tracker matching |
+| `--max-disappeared` | `50` | Frames before dropping a lost track |
+| `--save` | `None` | Output path for annotated result |
+
+### Controls (during video/stream playback)
+
+- Press **`q`** to quit
+
+---
+
+## Web Application
+
+The web app provides a browser-based UI with three pages: Image, Video, and Stream.
+
+### Start the server
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 5590
+```
+
+Then open **http://localhost:5590** in your browser.
+
+### Image Detection Page (`/`)
+
+1. Drag-and-drop or click to upload an image
+2. The server runs YOLOv8 detection and returns an annotated image
+3. Displays egg count and side-by-side comparison (original vs annotated)
+4. Download the annotated image
+
+### Video Processing Page (`/video.html`)
+
+1. Upload a video file (MP4, AVI, MOV, MKV)
+2. Click **Play** to start processing
+3. Click **Start Counting** to enable the ROI line-crossing counter
+4. Watch the live MJPEG feed with bounding boxes, trails, and dashboard overlay
+5. When complete, download the annotated output video (re-encoded to H.264)
+
+### Live Stream Page (`/stream.html`)
+
+1. Enter an RTSP URL (or configure via `.env`)
+2. Click **Connect** to start the stream
+3. Click **Start Counting** to enable counting
+4. Adjust ROI position and confidence threshold in real time via sliders
+5. Live stats: egg count, FPS
+
+---
+
+## Deployment
+
+### Option 1: Direct (bare metal / VM)
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 5590
+```
+
+For production:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 5590 --workers 1
+```
+
+### Option 2: Docker
+
+#### Build and run locally
 
 ```bash
 docker compose up --build
 ```
 
-This builds and tags the image as `basim123/egg-counter-cuda:latest`.
+This builds the image (tagged as `basim123/egg-counter:latest`), starts the container on port **5590** with GPU passthrough (NVIDIA Container Toolkit required).
 
-### GPU support
+#### Quick start (Windows)
 
-The `docker-compose.yml` includes NVIDIA GPU reservation. Requires:
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
-- Docker configured with `nvidia` runtime
+Double-click `start.bat` — it builds the container, waits for the server, and opens the browser automatically.
 
-### CPU-only
+#### Docker Compose configuration
 
-Remove the `deploy.resources.reservations` block from `docker-compose.yml` to run on CPU.
+```yaml
+services:
+  egg-counter:
+    image: basim123/egg-counter:latest
+    build: .
+    ports:
+      - "5590:5590"
+    volumes:
+      - ./app/uploads:/app/app/uploads
+      - ./app/outputs:/app/app/outputs
+    environment:
+      - MODEL_PATH=best.pt
+      - ROI_POSITION=0.7
+      - CONFIDENCE=0.25
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+```
 
 ---
 
-## Model Training
+### Docker Hub — pre-built images
 
-1. Label egg images using [Roboflow](https://roboflow.com) or CVAT
-2. Train YOLOv5 in Google Colab and export `best.pt`
-3. Place `best.pt` in the project root directory
+Pre-built images are published on Docker Hub under **`basim123/egg-counter`**:
+
+| Tag | Base | Use when |
+|-----|------|----------|
+| `latest` | NVIDIA CUDA 12.6.2 | You have an NVIDIA GPU + NVIDIA Container Toolkit |
+| `cpu` | Python 3.12 slim | No GPU / any machine |
 
 ---
 
-## Video Overlay Guide
+#### Build and push (owner only)
 
-| Element | Meaning |
-|---------|---------|
-| **Animated dashed red line** | ROI counting line with directional arrows |
-| **Amber/yellow dots** | Tracked eggs that haven't crossed the line yet |
-| **Green dots** | Eggs that have been counted |
-| **Thin gradient trails** | Motion path with dot markers for each tracked egg |
-| **Ripple ring** | Expanding ring effect when an egg crosses the line |
-| **Corner-accent boxes** | Bounding boxes with confidence % labels |
-| **Dashboard panel** | Live egg count, in-frame count, FPS, progress bar |
+```bash
+# GPU image (default)
+docker build -t basim123/egg-counter:latest .
+docker push basim123/egg-counter:latest
+
+# CPU image
+docker build -f Dockerfile.cpu -t basim123/egg-counter:cpu .
+docker push basim123/egg-counter:cpu
+```
+
+---
+
+#### Pull and run — GPU
+
+Requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+
+```bash
+docker pull basim123/egg-counter:latest
+```
+
+```bash
+# Linux / macOS
+docker run -d \
+  --gpus all \
+  --name egg-counter \
+  -p 5590:5590 \
+  -v "$(pwd)/uploads:/app/app/uploads" \
+  -v "$(pwd)/outputs:/app/app/outputs" \
+  -e MODEL_PATH=best.pt \
+  -e ROI_POSITION=0.7 \
+  -e CONFIDENCE=0.25 \
+  --restart unless-stopped \
+  basim123/egg-counter:latest
+```
+
+```powershell
+# Windows PowerShell
+docker run -d `
+  --gpus all `
+  --name egg-counter `
+  -p 5590:5590 `
+  -v "${PWD}/uploads:/app/app/uploads" `
+  -v "${PWD}/outputs:/app/app/outputs" `
+  -e MODEL_PATH=best.pt `
+  -e ROI_POSITION=0.7 `
+  -e CONFIDENCE=0.25 `
+  --restart unless-stopped `
+  basim123/egg-counter:latest
+```
+
+Open **http://localhost:5590** in your browser.
+
+---
+
+#### Pull and run — CPU
+
+```bash
+docker pull basim123/egg-counter:cpu
+```
+
+```bash
+# Linux / macOS
+docker run -d \
+  --name egg-counter \
+  -p 5590:5590 \
+  -v "$(pwd)/uploads:/app/app/uploads" \
+  -v "$(pwd)/outputs:/app/app/outputs" \
+  -e MODEL_PATH=best.pt \
+  -e ROI_POSITION=0.7 \
+  -e CONFIDENCE=0.25 \
+  --restart unless-stopped \
+  basim123/egg-counter:cpu
+```
+
+```powershell
+# Windows PowerShell
+docker run -d `
+  --name egg-counter `
+  -p 5590:5590 `
+  -v "${PWD}/uploads:/app/app/uploads" `
+  -v "${PWD}/outputs:/app/app/outputs" `
+  -e MODEL_PATH=best.pt `
+  -e ROI_POSITION=0.7 `
+  -e CONFIDENCE=0.25 `
+  --restart unless-stopped `
+  basim123/egg-counter:cpu
+```
+
+Open **http://localhost:5590** in your browser.
+
+> **Note:** CPU inference is significantly slower than GPU. Video and stream processing will run at reduced FPS.
+
+---
+
+#### RTSP stream (optional)
+
+Pass your camera URL via the `-e RTSP_URL=` flag:
+
+```bash
+docker run -d --gpus all -p 5590:5590 \
+  -e RTSP_URL=rtsp://user:pass@192.168.1.100:554/stream \
+  basim123/egg-counter:latest
+```
+
+---
+
+#### Useful container commands
+
+```bash
+docker logs -f egg-counter           # tail logs
+docker stop egg-counter              # stop
+docker rm egg-counter                # remove
+docker pull basim123/egg-counter:latest && \
+  docker stop egg-counter && docker rm egg-counter && \
+  docker run ...                     # update to latest
+```
+
+### Option 3: Cloud deployment
+
+#### AWS EC2 / GCP Compute Engine
+
+1. Launch a GPU instance (e.g., `g4dn.xlarge` on AWS, `n1-standard-4` + T4 on GCP)
+2. Install NVIDIA drivers and Docker
+3. Clone the project and copy `best.pt` into the root
+4. Run `docker compose up -d`
+5. Open port **5590** in the security group / firewall
+
+#### Behind a reverse proxy (Nginx)
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5590;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;           # Required for MJPEG streaming
+        proxy_cache off;
+        proxy_read_timeout 3600s;      # Keep stream connections alive
+    }
+}
+```
+
+---
+
+## Configuration
+
+All settings can be configured via environment variables, the `.env` file, or **live at runtime** via the `PATCH /api/config` endpoint:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_PATH` | `best.pt` | Path to YOLOv8 model weights |
+| `RTSP_URL` | (empty) | Default RTSP stream URL |
+| `ROI_POSITION` | `0.7` | ROI line position (0.0 = top, 1.0 = bottom) |
+| `CONFIDENCE` | `0.25` | Detection confidence threshold |
+| `NMS_IOU` | `0.45` | Non-max suppression IoU threshold |
+| `IMGSZ` | `640` | Inference image size (multiple of 32) |
+| `MAX_DISTANCE` | `40` | Max pixel distance for tracker matching |
+| `MAX_DISAPPEARED` | `50` | Frames before dropping a lost track |
+
+Runtime overrides via `PATCH /api/config` take effect immediately for new requests — no container restart required. Changing `model_path` reloads the model synchronously and rolls back on failure.
+
+---
+
+## API Reference
+
+### Health
+
+```
+GET    /health                           # GPU status, current model, config
+```
+
+### Image Detection
+
+```
+POST   /api/image/detect
+Content-Type: multipart/form-data
+Body: file=<image>
+
+Response: image/jpeg (annotated image)
+Headers: X-Egg-Count: <number>
+```
+
+### Video Processing
+
+```
+POST   /api/video/upload                 # Upload video, returns { session_id }
+POST   /api/video/{id}/start             # Start playback
+POST   /api/video/{id}/stop              # Stop playback
+POST   /api/video/{id}/counting/start    # Enable counting
+POST   /api/video/{id}/counting/stop     # Disable counting
+GET    /api/video/{id}/feed              # MJPEG stream
+GET    /api/video/{id}/status            # { egg_count, frame_num, fps, ... }
+GET    /api/video/{id}/download          # Download H.264 output
+```
+
+### Live Stream
+
+```
+POST   /api/stream/start                 # { url: "rtsp://..." }
+POST   /api/stream/stop
+POST   /api/stream/counting/start
+POST   /api/stream/counting/stop
+GET    /api/stream/feed                  # MJPEG stream
+GET    /api/stream/status                # { egg_count, fps, is_connected, ... }
+```
+
+### Configuration
+
+```
+GET    /api/config                       # Get current live settings
+PATCH  /api/config                       # Update settings (partial, no restart)
+```
+
+### TensorRT Export
+
+```
+POST   /api/export/tensorrt              # Start background TensorRT export
+GET    /api/export/tensorrt              # Poll status; auto-switches model_path on DONE
+```
+
+Interactive Swagger docs available at **http://localhost:5590/docs**.
+
+---
+
+## License
+
+See [LICENSE](LICENSE) for terms.

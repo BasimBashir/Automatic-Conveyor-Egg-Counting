@@ -1,72 +1,71 @@
 import os
 import uuid
 import shutil
+import cv2
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 
-from app.config import settings
-from app.core.detector import load_model
+from app.core.runtime_config import runtime_config
+from app.core.model_cache import get_model
 from app.core.video_processor import VideoProcessor
 
 router = APIRouter(prefix="/api/video", tags=["video"])
 
-# Active video sessions: session_id -> VideoProcessor
 _sessions: dict[str, VideoProcessor] = {}
 
 
 @router.post("/upload")
 async def upload_video(file: UploadFile = File(...)):
+    snap = runtime_config.snapshot()
+
     session_id = str(uuid.uuid4())[:8]
-    filepath = os.path.join(settings.upload_dir, f"{session_id}_{file.filename}")
+    filepath = os.path.join(snap["upload_dir"], f"{session_id}_{file.filename}")
 
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
     height = _get_video_height(filepath)
-    roi_y = int(height * settings.roi_position)
-    raw_output = os.path.join(settings.output_dir, f"{session_id}_raw.mp4")
+    roi_y = int(height * snap["roi_position"])
+    raw_output = os.path.join(snap["output_dir"], f"{session_id}_raw.mp4")
 
-    model = load_model(settings.model_path)
+    model = get_model(snap["model_path"])
     processor = VideoProcessor(
         source=filepath,
         model=model,
         roi_y=roi_y,
-        confidence=settings.confidence,
-        max_disappeared=settings.max_disappeared,
-        max_distance=settings.max_distance,
+        confidence=snap["confidence"],
+        nms_iou=snap["nms_iou"],
+        imgsz=snap["imgsz"],
+        max_disappeared=snap["max_disappeared"],
+        max_distance=snap["max_distance"],
         save_raw_path=raw_output,
         is_stream=False,
     )
     _sessions[session_id] = processor
-
     return {"session_id": session_id, "filename": file.filename}
 
 
 @router.post("/{session_id}/start")
 def start_video(session_id: str):
-    proc = _get_session(session_id)
-    proc.start()
+    _get_session(session_id).start()
     return {"status": "playing"}
 
 
 @router.post("/{session_id}/stop")
 def stop_video(session_id: str):
-    proc = _get_session(session_id)
-    proc.stop()
+    _get_session(session_id).stop()
     return {"status": "stopped"}
 
 
 @router.post("/{session_id}/counting/start")
 def start_counting(session_id: str):
-    proc = _get_session(session_id)
-    proc.start_counting()
+    _get_session(session_id).start_counting()
     return {"status": "counting"}
 
 
 @router.post("/{session_id}/counting/stop")
 def stop_counting(session_id: str):
-    proc = _get_session(session_id)
-    proc.stop_counting()
+    _get_session(session_id).stop_counting()
     return {"status": "not_counting"}
 
 
@@ -81,8 +80,7 @@ def video_feed(session_id: str):
 
 @router.get("/{session_id}/status")
 def video_status(session_id: str):
-    proc = _get_session(session_id)
-    return proc.get_status()
+    return _get_session(session_id).get_status()
 
 
 @router.get("/{session_id}/download")
@@ -92,7 +90,8 @@ def download_video(session_id: str):
     if not raw_path or not os.path.exists(raw_path):
         raise HTTPException(status_code=404, detail="Output not ready")
 
-    output_path = os.path.join(settings.output_dir, f"{session_id}_output.mp4")
+    snap = runtime_config.snapshot()
+    output_path = os.path.join(snap["output_dir"], f"{session_id}_output.mp4")
     if not os.path.exists(output_path):
         VideoProcessor.reencode_h264(raw_path, output_path)
 
@@ -111,7 +110,6 @@ def _get_session(session_id: str) -> VideoProcessor:
 
 
 def _get_video_height(filepath: str) -> int:
-    import cv2
     cap = cv2.VideoCapture(filepath)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()

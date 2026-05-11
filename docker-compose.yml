@@ -1,19 +1,21 @@
 services:
   egg-counter:
-    image: basim123/egg-counter-cuda:latest
+    image: basim123/egg-counter:latest
     build: .
     ports:
-      - "5580:5580"
+      - "5590:5590"
     volumes:
       - ./app/uploads:/app/app/uploads
       - ./app/outputs:/app/app/outputs
     environment:
       - RTSP_URL=${RTSP_URL:-}
-      - MODEL_PATH=best.pt
+      - MODEL_PATH=${MODEL_PATH:-best.pt}
       - ROI_POSITION=${ROI_POSITION:-0.7}
       - CONFIDENCE=${CONFIDENCE:-0.25}
-      - MAX_DISTANCE=${MAX_DISTANCE:-40}
-      - MAX_DISAPPEARED=${MAX_DISAPPEARED:-50}
+      - NMS_IOU=${NMS_IOU:-0.45}
+      - IMGSZ=${IMGSZ:-640}
+      - MAX_DISTANCE=${MAX_DISTANCE:-50}
+      - MAX_DISAPPEARED=${MAX_DISAPPEARED:-15}
     deploy:
       resources:
         reservations:
@@ -21,4 +23,10 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5590/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped

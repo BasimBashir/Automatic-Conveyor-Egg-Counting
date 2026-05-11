@@ -80,7 +80,7 @@ roiSlider.addEventListener("input", () => {
 });
 roiSlider.addEventListener("change", () => {
     fetch("/api/config", {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roi_position: parseFloat(roiSlider.value) }),
     });
@@ -91,7 +91,7 @@ confSlider.addEventListener("input", () => {
 });
 confSlider.addEventListener("change", () => {
     fetch("/api/config", {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confidence: parseFloat(confSlider.value) }),
     });

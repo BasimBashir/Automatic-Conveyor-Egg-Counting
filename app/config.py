@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     model_path: str = "best.pt"
     roi_position: float = 0.7
     confidence: float = 0.25
+    nms_iou: float = 0.45
+    imgsz: int = 640
     max_distance: int = 40
     max_disappeared: int = 50
     upload_dir: str = "app/uploads"

@@ -3,8 +3,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.config import settings
-from app.core.detector import load_model
+from app.core.runtime_config import runtime_config
+from app.core.model_cache import get_model
 from app.core.video_processor import VideoProcessor
 
 router = APIRouter(prefix="/api/stream", tags=["stream"])
@@ -20,24 +20,26 @@ class StreamStart(BaseModel):
 def start_stream(body: StreamStart = StreamStart()):
     global _processor
 
-    url = body.url or settings.rtsp_url
+    snap = runtime_config.snapshot()
+    url = body.url or snap["rtsp_url"]
     if not url:
         raise HTTPException(status_code=400, detail="No RTSP URL provided")
 
     if _processor and _processor.is_playing:
         _processor.stop()
 
-    model = load_model(settings.model_path)
-    # For streams we don't know height upfront, use default
-    roi_y = int(384 * settings.roi_position)
+    model = get_model(snap["model_path"])
+    roi_y = int(384 * snap["roi_position"])
 
     _processor = VideoProcessor(
         source=url,
         model=model,
         roi_y=roi_y,
-        confidence=settings.confidence,
-        max_disappeared=settings.max_disappeared,
-        max_distance=settings.max_distance,
+        confidence=snap["confidence"],
+        nms_iou=snap["nms_iou"],
+        imgsz=snap["imgsz"],
+        max_disappeared=snap["max_disappeared"],
+        max_distance=snap["max_distance"],
         is_stream=True,
     )
     _processor.start()
@@ -81,19 +83,14 @@ def stream_feed():
 @router.get("/status")
 def stream_status():
     if not _processor:
-        return {
-            "is_connected": False,
-            "is_counting": False,
-            "egg_count": 0,
-            "fps": 0,
-        }
+        return {"is_connected": False, "is_counting": False, "egg_count": 0, "fps": 0}
     status = _processor.get_status()
     return {
         "is_connected": status["is_playing"],
-        "is_counting": status["is_counting"],
-        "egg_count": status["egg_count"],
-        "fps": status["fps"],
-        "error": status["error"],
+        "is_counting":  status["is_counting"],
+        "egg_count":    status["egg_count"],
+        "fps":          status["fps"],
+        "error":        status["error"],
     }
 
 

@@ -3,8 +3,6 @@ import time
 import threading
 import subprocess
 import os
-import numpy as np
-from collections import deque
 
 from app.core.detector import detect_frame
 from app.core.counter import EggCounter
@@ -15,19 +13,21 @@ class VideoProcessor:
     """Background video/stream processor with independent play/count controls."""
 
     def __init__(self, source: str, model, roi_y: int, confidence: float = 0.25,
-                 max_disappeared: int = 50, max_distance: int = 40,
+                 nms_iou: float = 0.45, imgsz: int = 640,
+                 max_disappeared: int = 15, max_distance: int = 50,
                  save_raw_path: str = None, is_stream: bool = False):
         self.source = source
         self.model = model
         self.roi_y = roi_y
         self.confidence = confidence
+        self.nms_iou = nms_iou
+        self.imgsz = imgsz
         self.is_stream = is_stream
         self.save_raw_path = save_raw_path
 
         self.counter = EggCounter(roi_y=roi_y, max_disappeared=max_disappeared,
                                   max_distance=max_distance)
 
-        # State flags
         self.is_playing = False
         self.is_counting = False
         self.frame_num = 0
@@ -37,15 +37,12 @@ class VideoProcessor:
         self.is_complete = False
         self.error = None
 
-        # MJPEG buffer
         self._latest_frame = None
         self._frame_lock = threading.Lock()
 
-        # Thread
         self._thread = None
         self._stop_event = threading.Event()
 
-        # Video writer
         self._writer = None
 
     @property
@@ -58,7 +55,6 @@ class VideoProcessor:
             return self._latest_frame
 
     def start(self):
-        """Start processing in background thread."""
         if self.is_playing:
             return
         self._stop_event.clear()
@@ -67,7 +63,6 @@ class VideoProcessor:
         self._thread.start()
 
     def stop(self):
-        """Stop processing."""
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
@@ -106,10 +101,8 @@ class VideoProcessor:
         if self.total_frames <= 0:
             self.is_stream = True
 
-        # Update ROI based on actual video height
         self.counter.roi_y = int(height * (self.roi_y / max(height, 1))) if self.roi_y > 1 else self.roi_y
 
-        # Setup writer for saving
         if self.save_raw_path:
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             self._writer = cv2.VideoWriter(
@@ -139,20 +132,19 @@ class VideoProcessor:
                 fps_frame_count = 0
                 fps_timer = time.time()
 
-            # Detect
-            det_info = detect_frame(self.model, frame, self.confidence)
+            det_info = detect_frame(self.model, frame, self.confidence, self.nms_iou, self.imgsz)
 
-            # Count (if enabled)
             objects = {}
             if self.is_counting:
                 objects = self.counter.update(det_info)
             else:
-                # Still track for display but don't count crossings
-                centroids = [((d["x1"]+d["x2"])//2, (d["y1"]+d["y2"])//2)
-                             for d in det_info]
-                objects = self.counter.tracker.update(centroids)
+                tracker_input = [
+                    ((d["x1"]+d["x2"])//2, (d["y1"]+d["y2"])//2,
+                     d["x1"], d["y1"], d["x2"], d["y2"])
+                    for d in det_info
+                ]
+                objects = self.counter.tracker.update(tracker_input)
 
-            # Annotate
             flash_with_frame = [(fx, fy, self.frame_num - i)
                                 for i, (fx, fy) in enumerate(
                                     reversed(self.counter.flash_events[-12:]))]
@@ -171,16 +163,13 @@ class VideoProcessor:
                 fps_display=self.fps_display,
             )
 
-            # Save raw
             if self._writer:
                 self._writer.write(annotated)
 
-            # Encode to JPEG for MJPEG stream
             _, jpeg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
             with self._frame_lock:
                 self._latest_frame = jpeg.tobytes()
 
-            # Pace playback for video files
             if not self.is_stream and frame_delay > 0:
                 proc_time = time.time() - frame_start
                 wait = frame_delay - proc_time
@@ -194,7 +183,7 @@ class VideoProcessor:
 
     @staticmethod
     def reencode_h264(input_path: str, output_path: str):
-        """Re-encode video to H.264 with faststart for social media compatibility."""
+        """Re-encode video to H.264 with faststart for compatibility."""
         cmd = [
             "ffmpeg", "-y",
             "-i", input_path,
@@ -206,6 +195,5 @@ class VideoProcessor:
             output_path,
         ]
         subprocess.run(cmd, capture_output=True, check=True)
-        # Clean up raw temp file
         if os.path.exists(input_path):
             os.remove(input_path)

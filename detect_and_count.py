@@ -14,19 +14,18 @@ if platform.system() != "Windows":
 
 MODEL_PATH = r"best.pt"
 
-# ── Color Palette ──────────────────────────────────────────────────────────────
 COLORS = {
     "panel_bg":     (20, 20, 20),
     "panel_border": (60, 60, 60),
-    "accent":       (0, 200, 255),     # amber-yellow
-    "counted":      (0, 230, 118),     # green
-    "uncounted":    (255, 180, 0),     # cyan-blue
-    "roi_line":     (80, 80, 255),     # soft red
-    "roi_glow":     (60, 60, 200),     # dimmer red for glow
-    "flash":        (0, 255, 255),     # bright yellow flash
-    "bbox":         (255, 170, 50),    # light blue boxes
-    "bbox_counted": (0, 200, 100),     # green boxes for counted
-    "trail":        (200, 120, 0),     # trail color base
+    "accent":       (0, 200, 255),
+    "counted":      (0, 230, 118),
+    "uncounted":    (255, 180, 0),
+    "roi_line":     (80, 80, 255),
+    "roi_glow":     (60, 60, 200),
+    "flash":        (0, 255, 255),
+    "bbox":         (255, 170, 50),
+    "bbox_counted": (0, 200, 100),
+    "trail":        (200, 120, 0),
     "white":        (255, 255, 255),
     "dim":          (160, 160, 160),
     "very_dim":     (100, 100, 100),
@@ -101,30 +100,21 @@ class CentroidTracker:
         self.next_id += 1
 
 
-# ── Drawing Helpers ────────────────────────────────────────────────────────────
-
 def draw_rounded_rect(img, pt1, pt2, color, radius=12, thickness=-1, alpha=0.85):
-    """Draw a rounded rectangle with transparency."""
     overlay = img.copy()
     x1, y1 = pt1
     x2, y2 = pt2
     r = radius
-
-    # Fill the main body rectangles
     cv2.rectangle(overlay, (x1 + r, y1), (x2 - r, y2), color, thickness)
     cv2.rectangle(overlay, (x1, y1 + r), (x2, y2 - r), color, thickness)
-
-    # Fill corners
     cv2.ellipse(overlay, (x1 + r, y1 + r), (r, r), 180, 0, 90, color, thickness)
     cv2.ellipse(overlay, (x2 - r, y1 + r), (r, r), 270, 0, 90, color, thickness)
     cv2.ellipse(overlay, (x2 - r, y2 - r), (r, r), 0, 0, 90, color, thickness)
     cv2.ellipse(overlay, (x1 + r, y2 - r), (r, r), 90, 0, 90, color, thickness)
-
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
 
 
 def draw_trail(img, points, base_color, max_length=20):
-    """Draw a thin gradient trail with small dot markers."""
     pts = list(points)
     n = len(pts)
     if n < 2:
@@ -145,11 +135,7 @@ def draw_trail(img, points, base_color, max_length=20):
 
 
 def draw_roi_line(img, roi_y, width, frame_num):
-    """Draw an animated ROI counting line with moving dashes and glow."""
-    # Glow effect (thick dim line underneath)
     cv2.line(img, (0, roi_y), (width, roi_y), COLORS["roi_glow"], 6, cv2.LINE_AA)
-
-    # Animated dashes - shift pattern based on frame number
     dash_len = 20
     gap_len = 12
     offset = (frame_num * 2) % (dash_len + gap_len)
@@ -160,8 +146,6 @@ def draw_roi_line(img, roi_y, width, frame_num):
         if x2 > x1:
             cv2.line(img, (x1, roi_y), (x2, roi_y), COLORS["roi_line"], 2, cv2.LINE_AA)
         x += dash_len + gap_len
-
-    # Small arrows along the line showing direction (downward)
     arrow_spacing = 120
     for ax in range(arrow_spacing // 2, width, arrow_spacing):
         cv2.arrowedLine(
@@ -171,7 +155,6 @@ def draw_roi_line(img, roi_y, width, frame_num):
 
 
 def draw_crossing_flash(img, cx, cy, intensity):
-    """Draw an expanding ring ripple when an egg crosses the line."""
     overlay = img.copy()
     ring_radius = int(8 + 20 * (1.0 - intensity))
     ring_thickness = max(1, int(2 * intensity))
@@ -185,47 +168,30 @@ def draw_crossing_flash(img, cx, cy, intensity):
 
 def draw_dashboard(img, total_count, in_frame, total_tracked, frame_num,
                    total_frames, is_stream, fps_display, width):
-    """Draw a polished info dashboard panel."""
     panel_w = 300
     panel_h = 130
     margin = 8
-
     draw_rounded_rect(
         img, (margin, margin), (margin + panel_w, margin + panel_h),
         COLORS["panel_bg"], radius=10, alpha=0.88
     )
-
-    # Border accent line on top
-    cv2.line(
-        img,
-        (margin + 10, margin + 2),
-        (margin + panel_w - 10, margin + 2),
-        COLORS["accent"], 2, cv2.LINE_AA
-    )
-
+    cv2.line(img, (margin + 10, margin + 2), (margin + panel_w - 10, margin + 2),
+             COLORS["accent"], 2, cv2.LINE_AA)
     x0 = margin + 14
     y0 = margin + 30
-
-    # Main counter - large
     count_text = f"{total_count}"
     cv2.putText(img, count_text, (x0, y0 + 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, COLORS["counted"], 3, cv2.LINE_AA)
     tw = cv2.getTextSize(count_text, cv2.FONT_HERSHEY_SIMPLEX, 1.4, 3)[0][0]
     cv2.putText(img, "eggs counted", (x0 + tw + 8, y0 + 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLORS["dim"], 1, cv2.LINE_AA)
-
-    # Separator
     cv2.line(img, (x0, y0 + 18), (x0 + panel_w - 30, y0 + 18),
              COLORS["panel_border"], 1, cv2.LINE_AA)
-
-    # Stats row
     y1 = y0 + 42
     cv2.putText(img, f"In Frame: {in_frame}", (x0, y1),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.48, COLORS["white"], 1, cv2.LINE_AA)
     cv2.putText(img, f"Tracked: {total_tracked}", (x0 + 140, y1),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.48, COLORS["accent"], 1, cv2.LINE_AA)
-
-    # Frame / FPS row
     y2 = y1 + 24
     if is_stream:
         frame_text = f"Frame: {frame_num}"
@@ -236,43 +202,29 @@ def draw_dashboard(img, total_count, in_frame, total_tracked, frame_num,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.42, COLORS["very_dim"], 1, cv2.LINE_AA)
     cv2.putText(img, f"FPS: {fps_display:.0f}", (x0 + 200, y2),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.42, COLORS["very_dim"], 1, cv2.LINE_AA)
-
-    # Progress bar (for video files)
     if not is_stream and total_frames > 0:
         y3 = y2 + 18
         bar_x1 = x0
         bar_x2 = x0 + panel_w - 30
         bar_w = bar_x2 - bar_x1
         progress = frame_num / total_frames
-        cv2.rectangle(img, (bar_x1, y3), (bar_x2, y3 + 4),
-                      COLORS["panel_border"], -1)
+        cv2.rectangle(img, (bar_x1, y3), (bar_x2, y3 + 4), COLORS["panel_border"], -1)
         cv2.rectangle(img, (bar_x1, y3), (bar_x1 + int(bar_w * progress), y3 + 4),
                       COLORS["accent"], -1)
 
 
 def draw_bbox(img, x1, y1, x2, y2, counted, conf):
-    """Draw a styled bounding box with corner accents."""
     color = COLORS["bbox_counted"] if counted else COLORS["bbox"]
     corner_len = 8
-
-    # Thin full rectangle
     cv2.rectangle(img, (x1, y1), (x2, y2), color, 1, cv2.LINE_AA)
-
-    # Bold corner accents
-    # Top-left
     cv2.line(img, (x1, y1), (x1 + corner_len, y1), color, 2, cv2.LINE_AA)
     cv2.line(img, (x1, y1), (x1, y1 + corner_len), color, 2, cv2.LINE_AA)
-    # Top-right
     cv2.line(img, (x2, y1), (x2 - corner_len, y1), color, 2, cv2.LINE_AA)
     cv2.line(img, (x2, y1), (x2, y1 + corner_len), color, 2, cv2.LINE_AA)
-    # Bottom-left
     cv2.line(img, (x1, y2), (x1 + corner_len, y2), color, 2, cv2.LINE_AA)
     cv2.line(img, (x1, y2), (x1, y2 - corner_len), color, 2, cv2.LINE_AA)
-    # Bottom-right
     cv2.line(img, (x2, y2), (x2 - corner_len, y2), color, 2, cv2.LINE_AA)
     cv2.line(img, (x2, y2), (x2, y2 - corner_len), color, 2, cv2.LINE_AA)
-
-    # Confidence label
     label = f"{conf:.0%}"
     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
     cv2.rectangle(img, (x1, y1 - th - 6), (x1 + tw + 6, y1), color, -1)
@@ -280,12 +232,9 @@ def draw_bbox(img, x1, y1, x2, y2, counted, conf):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1, cv2.LINE_AA)
 
 
-# ── Core Functions ─────────────────────────────────────────────────────────────
-
 def load_model(model_path=MODEL_PATH):
-    """Load the YOLOv5 custom model."""
-    model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
-    return model
+    """Load the YOLOv5 custom model via torch.hub."""
+    return torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
 
 
 def detect_and_annotate_image(model, image_path, conf_threshold=0.25, save_path=None):
@@ -313,8 +262,7 @@ def detect_and_annotate_image(model, image_path, conf_threshold=0.25, save_path=
         cy = (y1 + y2) // 2
         cv2.circle(annotated, (cx, cy), 4, COLORS["accent"], -1, cv2.LINE_AA)
 
-    h, w = annotated.shape[:2]
-    draw_rounded_rect(annotated, (8, 8), (250, 55), COLORS["panel_bg"], radius=8, alpha=0.85)
+    draw_rounded_rect(annotated, (8, 8), (280, 55), COLORS["panel_bg"], radius=8, alpha=0.85)
     cv2.putText(
         annotated, f"{egg_count}", (18, 45),
         cv2.FONT_HERSHEY_SIMPLEX, 1.3, COLORS["counted"], 3, cv2.LINE_AA
@@ -337,11 +285,7 @@ def detect_and_annotate_video(
     model, video_path, conf_threshold=0.25, save_path=None,
     roi_position=0.7, max_disappeared=50, max_distance=40
 ):
-    """Detect and count total eggs crossing a ROI line in a video.
-
-    Eggs are tracked across frames using centroid tracking. Each egg is counted
-    exactly once when its center crosses the horizontal ROI line.
-    """
+    """Detect and count eggs crossing a ROI line in a video."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print(f"Error: Could not open video '{video_path}'")
@@ -368,12 +312,11 @@ def detect_and_annotate_video(
     total_count = 0
     counted_ids = set()
     prev_positions = {}
-    trails = {}           # id -> deque of (cx, cy) for motion trail
-    flash_events = []     # list of (cx, cy, start_frame) for crossing flashes
+    trails = {}
+    flash_events = []
     frame_num = 0
     trail_length = 18
 
-    # FPS calculation
     fps_timer = time.time()
     fps_display = 0.0
     fps_frame_count = 0
@@ -394,7 +337,6 @@ def detect_and_annotate_video(
         frame_num += 1
         fps_frame_count += 1
 
-        # Calculate actual processing FPS
         elapsed = time.time() - fps_timer
         if elapsed >= 0.5:
             fps_display = fps_frame_count / elapsed
@@ -404,68 +346,57 @@ def detect_and_annotate_video(
         results = model(frame)
         detections = results.pandas().xyxy[0]
 
-        # Build detection info: centroids + bounding boxes
         centroids = []
         det_info = []
         for _, det in detections.iterrows():
-            cx = int((det["xmin"] + det["xmax"]) / 2)
-            cy = int((det["ymin"] + det["ymax"]) / 2)
+            x1 = int(det["xmin"])
+            y1 = int(det["ymin"])
+            x2 = int(det["xmax"])
+            y2 = int(det["ymax"])
+            conf = float(det["confidence"])
+            cx = (x1 + x2) // 2
+            cy = (y1 + y2) // 2
             centroids.append((cx, cy))
-            det_info.append({
-                "x1": int(det["xmin"]), "y1": int(det["ymin"]),
-                "x2": int(det["xmax"]), "y2": int(det["ymax"]),
-                "conf": det["confidence"],
-            })
+            det_info.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "conf": conf})
 
-        # Update tracker
         objects = tracker.update(centroids)
-
-        # Update trails
         active_ids = set(objects.keys())
+
         for obj_id, (cx, cy) in objects.items():
             if obj_id not in trails:
                 trails[obj_id] = deque(maxlen=trail_length)
             trails[obj_id].append((int(cx), int(cy)))
 
-        # Remove trails for deregistered objects
         for old_id in list(trails.keys()):
             if old_id not in active_ids:
                 del trails[old_id]
 
-        # Check line crossings
         for obj_id, (cx, cy) in objects.items():
             if obj_id in counted_ids:
                 continue
-
             prev_y = prev_positions.get(obj_id)
             if prev_y is not None:
                 if (prev_y >= roi_y > cy) or (prev_y <= roi_y < cy):
                     total_count += 1
                     counted_ids.add(obj_id)
                     flash_events.append((int(cx), int(cy), frame_num))
-
             prev_positions[obj_id] = cy
 
-        # Clean up prev_positions
         for old_id in list(prev_positions.keys()):
             if old_id not in active_ids:
                 del prev_positions[old_id]
 
-        # ── Render ─────────────────────────────────────────────────────────
         annotated = frame.copy()
 
-        # 1. Motion trails (drawn first, underneath everything)
         for obj_id, trail_pts in trails.items():
             if obj_id in counted_ids:
                 draw_trail(annotated, trail_pts, COLORS["counted"], trail_length)
             else:
                 draw_trail(annotated, trail_pts, COLORS["trail"], trail_length)
 
-        # 2. Bounding boxes - match detections to tracked IDs for coloring
         for info in det_info:
             cx = (info["x1"] + info["x2"]) // 2
             cy = (info["y1"] + info["y2"]) // 2
-            # Find which tracked object this detection belongs to
             is_counted = False
             for obj_id, (ox, oy) in objects.items():
                 if abs(ox - cx) < 5 and abs(oy - cy) < 5:
@@ -474,10 +405,8 @@ def detect_and_annotate_video(
             draw_bbox(annotated, info["x1"], info["y1"],
                       info["x2"], info["y2"], is_counted, info["conf"])
 
-        # 3. ROI line (animated)
         draw_roi_line(annotated, roi_y, width, frame_num)
 
-        # 4. Crossing flash effects (last ~12 frames)
         active_flashes = []
         for (fx, fy, f_start) in flash_events:
             age = frame_num - f_start
@@ -487,7 +416,6 @@ def detect_and_annotate_video(
                 active_flashes.append((fx, fy, f_start))
         flash_events = active_flashes
 
-        # 5. Tracked centroid dots
         for obj_id, (cx, cy) in objects.items():
             if obj_id in counted_ids:
                 color = COLORS["counted"]
@@ -495,7 +423,6 @@ def detect_and_annotate_video(
                 color = COLORS["uncounted"]
             cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
-        # 6. Dashboard
         draw_dashboard(
             annotated, total_count, len(objects), tracker.next_id,
             frame_num, total_frames, is_stream, fps_display, width
@@ -522,33 +449,16 @@ def detect_and_annotate_video(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Egg Detection and Counting")
-    parser.add_argument(
-        "input",
-        help="Path to an image, video file, or RTSP stream URL"
-    )
-    parser.add_argument(
-        "--save", default=None, help="Path to save the annotated output"
-    )
-    parser.add_argument(
-        "--conf", type=float, default=0.25,
-        help="Confidence threshold (default: 0.25)"
-    )
-    parser.add_argument(
-        "--model", default=MODEL_PATH,
-        help="Path to YOLOv5 model weights"
-    )
-    parser.add_argument(
-        "--roi", type=float, default=0.7,
-        help="ROI line position as fraction of frame height, 0.0=top 1.0=bottom (default: 0.7)"
-    )
-    parser.add_argument(
-        "--max-distance", type=int, default=40,
-        help="Max pixel distance for matching eggs across frames (default: 40)"
-    )
-    parser.add_argument(
-        "--max-disappeared", type=int, default=50,
-        help="Frames before a lost track is dropped (default: 50)"
-    )
+    parser.add_argument("input", help="Path to an image, video file, or RTSP stream URL")
+    parser.add_argument("--save", default=None, help="Path to save the annotated output")
+    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold (default: 0.25)")
+    parser.add_argument("--model", default=MODEL_PATH, help="Path to YOLOv5 model weights")
+    parser.add_argument("--roi", type=float, default=0.7,
+                        help="ROI line position as fraction of frame height (default: 0.7)")
+    parser.add_argument("--max-distance", type=int, default=40,
+                        help="Max pixel distance for matching across frames (default: 40)")
+    parser.add_argument("--max-disappeared", type=int, default=50,
+                        help="Frames before a lost track is dropped (default: 50)")
     args = parser.parse_args()
 
     model = load_model(args.model)
