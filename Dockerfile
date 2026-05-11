@@ -1,13 +1,16 @@
 FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TORCH_HOME=/app/.torch \
+    HOME=/app
 
 # Ubuntu 24.04 ships Python 3.12 — no PPA needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
         python3-dev \
+        git \
         ffmpeg \
         libgl1 \
         libglib2.0-0 \
@@ -23,7 +26,7 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY app/ app/
 COPY best.pt .
 
-RUN mkdir -p app/uploads app/outputs
+RUN mkdir -p app/uploads app/outputs .torch
 
 # Non-root user for security
 RUN groupadd --gid 1001 appuser && \
