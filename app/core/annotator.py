@@ -53,24 +53,50 @@ def draw_trail(img, points, base_color, max_length=20):
     cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
-def draw_roi_line(img, roi_y, width, frame_num):
-    cv2.line(img, (0, roi_y), (width, roi_y), COLORS["roi_glow"], 6, cv2.LINE_AA)
-    dash_len = 20
-    gap_len = 12
-    offset = (frame_num * 2) % (dash_len + gap_len)
-    x = -offset
-    while x < width:
-        x1 = max(0, x)
-        x2 = min(width, x + dash_len)
-        if x2 > x1:
-            cv2.line(img, (x1, roi_y), (x2, roi_y), COLORS["roi_line"], 2, cv2.LINE_AA)
-        x += dash_len + gap_len
-    arrow_spacing = 120
-    for ax in range(arrow_spacing // 2, width, arrow_spacing):
-        cv2.arrowedLine(
-            img, (ax, roi_y - 10), (ax, roi_y + 10),
-            COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5
-        )
+def draw_roi_line(img, direction, roi_pos_px, width, height, frame_num):
+    """Draw the dashed counting line.
+
+    direction: "tb" -> horizontal line at y=roi_pos_px
+    direction: "lr" -> vertical line at x=roi_pos_px
+    """
+    if direction == "tb":
+        roi_y = roi_pos_px
+        cv2.line(img, (0, roi_y), (width, roi_y), COLORS["roi_glow"], 6, cv2.LINE_AA)
+        dash_len = 20
+        gap_len = 12
+        offset = (frame_num * 2) % (dash_len + gap_len)
+        x = -offset
+        while x < width:
+            x1 = max(0, x)
+            x2 = min(width, x + dash_len)
+            if x2 > x1:
+                cv2.line(img, (x1, roi_y), (x2, roi_y), COLORS["roi_line"], 2, cv2.LINE_AA)
+            x += dash_len + gap_len
+        arrow_spacing = 120
+        for ax in range(arrow_spacing // 2, width, arrow_spacing):
+            cv2.arrowedLine(
+                img, (ax, roi_y - 10), (ax, roi_y + 10),
+                COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5
+            )
+    else:  # "lr"
+        roi_x = roi_pos_px
+        cv2.line(img, (roi_x, 0), (roi_x, height), COLORS["roi_glow"], 6, cv2.LINE_AA)
+        dash_len = 20
+        gap_len = 12
+        offset = (frame_num * 2) % (dash_len + gap_len)
+        y = -offset
+        while y < height:
+            y1 = max(0, y)
+            y2 = min(height, y + dash_len)
+            if y2 > y1:
+                cv2.line(img, (roi_x, y1), (roi_x, y2), COLORS["roi_line"], 2, cv2.LINE_AA)
+            y += dash_len + gap_len
+        arrow_spacing = 120
+        for ay in range(arrow_spacing // 2, height, arrow_spacing):
+            cv2.arrowedLine(
+                img, (roi_x - 10, ay), (roi_x + 10, ay),
+                COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5
+            )
 
 
 def draw_crossing_flash(img, cx, cy, intensity):
@@ -152,9 +178,13 @@ def draw_bbox(img, x1, y1, x2, y2, counted, conf):
 
 
 def annotate_detections(frame, detections, objects, counted_ids, trails,
-                        flash_events, roi_y, frame_num, total_count,
-                        total_frames, is_stream, fps_display):
-    """Full-frame annotation: bboxes, trails, ROI line, flashes, dashboard."""
+                        flash_events, direction, roi_pos_px, frame_num,
+                        total_count, total_frames, is_stream, fps_display):
+    """Full-frame annotation: bboxes, trails, ROI line, flashes, dashboard.
+
+    direction: "tb" | "lr" | None (None disables the counting line).
+    roi_pos_px: pixel offset along the direction axis; ignored if direction is None.
+    """
     annotated = frame.copy()
     height, width = annotated.shape[:2]
 
@@ -175,8 +205,8 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
         draw_bbox(annotated, info["x1"], info["y1"],
                   info["x2"], info["y2"], is_counted, info["conf"])
 
-    if roi_y is not None:
-        draw_roi_line(annotated, roi_y, width, frame_num)
+    if direction is not None and roi_pos_px is not None:
+        draw_roi_line(annotated, direction, roi_pos_px, width, height, frame_num)
 
     active_flashes = []
     for (fx, fy, f_start) in flash_events:
@@ -196,9 +226,13 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
     draw_dashboard(annotated, total_count, len(objects), tracker_total,
                    frame_num, total_frames, is_stream, fps_display, width)
 
-    if roi_y is not None:
-        cv2.putText(annotated, "COUNTING LINE", (width - 200, roi_y - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS["roi_line"], 2, cv2.LINE_AA)
+    if direction is not None and roi_pos_px is not None:
+        if direction == "tb":
+            cv2.putText(annotated, "COUNTING LINE", (width - 200, roi_pos_px - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS["roi_line"], 2, cv2.LINE_AA)
+        else:
+            cv2.putText(annotated, "COUNTING LINE", (roi_pos_px + 8, height - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS["roi_line"], 2, cv2.LINE_AA)
 
     return annotated
 
