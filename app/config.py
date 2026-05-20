@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     max_disappeared: int = 50
     upload_dir: str = "app/uploads"
     output_dir: str = "app/outputs"
+    data_dir: str = "app/data"
+    stream_batch_interval_ms: int = 33
+    stream_reconnect_backoff_s: float = 5.0
 
     class Config:
         env_file = ".env"

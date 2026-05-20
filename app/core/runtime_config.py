@@ -26,6 +26,9 @@ class RuntimeConfig:
             "max_disappeared": boot.max_disappeared,
             "upload_dir":     boot.upload_dir,
             "output_dir":     boot.output_dir,
+            "data_dir":       boot.data_dir,
+            "stream_batch_interval_ms":  boot.stream_batch_interval_ms,
+            "stream_reconnect_backoff_s": boot.stream_reconnect_backoff_s,
         })
 
     def __getattr__(self, name: str):
