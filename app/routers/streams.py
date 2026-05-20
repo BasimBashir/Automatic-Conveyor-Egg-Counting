@@ -176,3 +176,45 @@ async def upload_to_slot(slot: int, file: UploadFile = File(...)):
     if slot in _slots:
         _slots[slot].configure(new_cfg)
     return new_cfg.to_dict()
+
+
+@router.post("/{slot}/start")
+def start_stream(slot: int):
+    _validate_slot(slot)
+    mgr = _require_manager()
+    cfg = mgr.get_config(slot)
+    if cfg is None or cfg.source is None:
+        raise HTTPException(status_code=400, detail="Slot has no source configured")
+    _slots[slot].configure(cfg)
+    _slots[slot].start()
+    return {"status": "started"}
+
+
+@router.post("/{slot}/stop")
+def stop_stream(slot: int):
+    _validate_slot(slot)
+    _slots[slot].stop()
+    return {"status": "stopped"}
+
+
+@router.post("/{slot}/counting/start")
+def start_counting(slot: int):
+    _validate_slot(slot)
+    if not _slots[slot].is_playing:
+        raise HTTPException(status_code=400, detail="Stream not active")
+    _slots[slot].start_counting()
+    return {"status": "counting"}
+
+
+@router.post("/{slot}/counting/stop")
+def stop_counting(slot: int):
+    _validate_slot(slot)
+    _slots[slot].stop_counting()
+    return {"status": "not_counting"}
+
+
+@router.post("/{slot}/reset")
+def reset_counter(slot: int):
+    _validate_slot(slot)
+    _slots[slot].reset_counter()
+    return {"status": "reset"}
