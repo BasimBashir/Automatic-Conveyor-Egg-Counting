@@ -3,6 +3,7 @@ import time
 import threading
 import subprocess
 import os
+from typing import Literal
 
 from app.core.detector import detect_frame
 from app.core.counter import EggCounter
@@ -10,22 +11,31 @@ from app.core.annotator import annotate_detections
 
 
 class VideoProcessor:
-    """Background video/stream processor with independent play/count controls."""
+    """Background video/stream processor with independent play/count controls.
 
-    def __init__(self, source: str, model, roi_y: int, confidence: float = 0.25,
-                 nms_iou: float = 0.45, imgsz: int = 640,
-                 max_disappeared: int = 15, max_distance: int = 50,
-                 save_raw_path: str = None, is_stream: bool = False):
+    direction:    "tb" | "lr"
+    roi_position: fraction in [0,1] along the direction-of-travel axis
+    """
+
+    def __init__(self, source: str, model,
+                 direction: Literal["tb", "lr"] = "tb",
+                 roi_position: float = 0.7,
+                 confidence: float = 0.25, nms_iou: float = 0.45,
+                 imgsz: int = 640, max_disappeared: int = 15,
+                 max_distance: int = 50, save_raw_path: str = None,
+                 is_stream: bool = False):
         self.source = source
         self.model = model
-        self.roi_y = roi_y
+        self.direction = direction
+        self.roi_position = roi_position
         self.confidence = confidence
         self.nms_iou = nms_iou
         self.imgsz = imgsz
         self.is_stream = is_stream
         self.save_raw_path = save_raw_path
 
-        self.counter = EggCounter(roi_y=roi_y, max_disappeared=max_disappeared,
+        self.counter = EggCounter(direction=direction, roi_position=roi_position,
+                                  max_disappeared=max_disappeared,
                                   max_distance=max_distance)
 
         self.is_playing = False
@@ -84,6 +94,8 @@ class VideoProcessor:
             "fps": round(self.fps_display, 1),
             "is_complete": self.is_complete,
             "is_stream": self.is_stream,
+            "direction": self.direction,
+            "roi_position": self.roi_position,
             "error": self.error,
         }
 
@@ -101,7 +113,7 @@ class VideoProcessor:
         if self.total_frames <= 0:
             self.is_stream = True
 
-        self.counter.roi_y = int(height * (self.roi_y / max(height, 1))) if self.roi_y > 1 else self.roi_y
+        self.counter.set_frame_size(width=width, height=height)
 
         if self.save_raw_path:
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -134,7 +146,6 @@ class VideoProcessor:
 
             det_info = detect_frame(self.model, frame, self.confidence, self.nms_iou, self.imgsz)
 
-            objects = {}
             if self.is_counting:
                 objects = self.counter.update(det_info)
             else:
@@ -148,6 +159,14 @@ class VideoProcessor:
             flash_with_frame = [(fx, fy, self.frame_num - i)
                                 for i, (fx, fy) in enumerate(
                                     reversed(self.counter.flash_events[-12:]))]
+
+            roi_pos_px = None
+            direction_for_draw = None
+            if self.is_counting:
+                roi_pos_px = (self.counter.roi_y if self.direction == "tb"
+                              else self.counter.roi_x)
+                direction_for_draw = self.direction
+
             annotated = annotate_detections(
                 frame=frame,
                 detections=det_info,
@@ -155,7 +174,8 @@ class VideoProcessor:
                 counted_ids=self.counter.counted_ids if self.is_counting else set(),
                 trails=self.counter.trails,
                 flash_events=flash_with_frame,
-                roi_y=self.counter.roi_y if self.is_counting else None,
+                direction=direction_for_draw,
+                roi_pos_px=roi_pos_px,
                 frame_num=self.frame_num,
                 total_count=self.counter.total_count if self.is_counting else 0,
                 total_frames=self.total_frames,
