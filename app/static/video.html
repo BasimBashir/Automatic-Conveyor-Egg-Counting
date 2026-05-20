@@ -20,6 +20,13 @@
         <p class="page-subtitle">Upload a video to detect, track, and count eggs crossing the ROI line</p>
 
         <div class="card" id="uploadCard">
+            <div style="margin-bottom:16px;">
+                <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">Conveyor direction</div>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="btn btn-outline active" data-dir="tb">Top &rarr; Bottom</button>
+                    <button type="button" class="btn btn-outline" data-dir="lr">Left &rarr; Right</button>
+                </div>
+            </div>
             <div class="upload-zone" id="uploadZone">
                 <div class="icon">&#127910;</div>
                 <div class="label">Drop video here or click to browse</div>

@@ -1,8 +1,7 @@
 import os
 import uuid
 import shutil
-import cv2
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 
 from app.core.runtime_config import runtime_config
@@ -15,7 +14,16 @@ _sessions: dict[str, VideoProcessor] = {}
 
 
 @router.post("/upload")
-async def upload_video(file: UploadFile = File(...)):
+async def upload_video(
+    file: UploadFile = File(...),
+    direction: str = Form("tb"),
+    roi_position: float | None = Form(None),
+):
+    if direction not in ("tb", "lr"):
+        raise HTTPException(status_code=400, detail="direction must be 'tb' or 'lr'")
+    if roi_position is not None and not (0.0 <= roi_position <= 1.0):
+        raise HTTPException(status_code=400, detail="roi_position must be in [0,1]")
+
     snap = runtime_config.snapshot()
 
     session_id = str(uuid.uuid4())[:8]
@@ -24,15 +32,15 @@ async def upload_video(file: UploadFile = File(...)):
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    height = _get_video_height(filepath)
-    roi_y = int(height * snap["roi_position"])
     raw_output = os.path.join(snap["output_dir"], f"{session_id}_raw.mp4")
+    effective_roi = roi_position if roi_position is not None else snap["roi_position"]
 
     model = get_model(snap["model_path"])
     processor = VideoProcessor(
         source=filepath,
         model=model,
-        roi_y=roi_y,
+        direction=direction,
+        roi_position=effective_roi,
         confidence=snap["confidence"],
         nms_iou=snap["nms_iou"],
         imgsz=snap["imgsz"],
@@ -42,7 +50,8 @@ async def upload_video(file: UploadFile = File(...)):
         is_stream=False,
     )
     _sessions[session_id] = processor
-    return {"session_id": session_id, "filename": file.filename}
+    return {"session_id": session_id, "filename": file.filename,
+            "direction": direction, "roi_position": effective_roi}
 
 
 @router.post("/{session_id}/start")
@@ -107,13 +116,6 @@ def _get_session(session_id: str) -> VideoProcessor:
     if proc is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return proc
-
-
-def _get_video_height(filepath: str) -> int:
-    cap = cv2.VideoCapture(filepath)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
-    return height if height > 0 else 384
 
 
 def _mjpeg_generator(proc: VideoProcessor):

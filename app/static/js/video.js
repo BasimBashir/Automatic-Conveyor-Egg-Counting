@@ -18,6 +18,15 @@ const downloadBtn = document.getElementById("downloadBtn");
 
 let sessionId = null;
 let pollInterval = null;
+let selectedDirection = "tb";
+
+document.querySelectorAll('[data-dir]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-dir]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedDirection = btn.dataset.dir;
+    });
+});
 
 uploadZone.addEventListener("click", () => fileInput.click());
 uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
@@ -33,6 +42,7 @@ async function handleUpload(file) {
     uploadZone.querySelector(".label").textContent = "Uploading...";
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("direction", selectedDirection);
 
     try {
         const resp = await fetch("/api/video/upload", { method: "POST", body: formData });
