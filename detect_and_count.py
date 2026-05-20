@@ -134,10 +134,9 @@ def draw_trail(img, points, base_color, max_length=20):
     cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
-def draw_roi_line(img, roi_y, width, frame_num):
+def draw_roi_line_tb(img, roi_y, width, frame_num):
     cv2.line(img, (0, roi_y), (width, roi_y), COLORS["roi_glow"], 6, cv2.LINE_AA)
-    dash_len = 20
-    gap_len = 12
+    dash_len, gap_len = 20, 12
     offset = (frame_num * 2) % (dash_len + gap_len)
     x = -offset
     while x < width:
@@ -146,12 +145,25 @@ def draw_roi_line(img, roi_y, width, frame_num):
         if x2 > x1:
             cv2.line(img, (x1, roi_y), (x2, roi_y), COLORS["roi_line"], 2, cv2.LINE_AA)
         x += dash_len + gap_len
-    arrow_spacing = 120
-    for ax in range(arrow_spacing // 2, width, arrow_spacing):
-        cv2.arrowedLine(
-            img, (ax, roi_y - 10), (ax, roi_y + 10),
-            COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5
-        )
+    for ax in range(60, width, 120):
+        cv2.arrowedLine(img, (ax, roi_y - 10), (ax, roi_y + 10),
+                        COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5)
+
+
+def draw_roi_line_lr(img, roi_x, height, frame_num):
+    cv2.line(img, (roi_x, 0), (roi_x, height), COLORS["roi_glow"], 6, cv2.LINE_AA)
+    dash_len, gap_len = 20, 12
+    offset = (frame_num * 2) % (dash_len + gap_len)
+    y = -offset
+    while y < height:
+        y1 = max(0, y)
+        y2 = min(height, y + dash_len)
+        if y2 > y1:
+            cv2.line(img, (roi_x, y1), (roi_x, y2), COLORS["roi_line"], 2, cv2.LINE_AA)
+        y += dash_len + gap_len
+    for ay in range(60, height, 120):
+        cv2.arrowedLine(img, (roi_x - 10, ay), (roi_x + 10, ay),
+                        COLORS["roi_line"], 2, cv2.LINE_AA, tipLength=0.5)
 
 
 def draw_crossing_flash(img, cx, cy, intensity):
@@ -283,7 +295,8 @@ def detect_and_annotate_image(model, image_path, conf_threshold=0.25, save_path=
 
 def detect_and_annotate_video(
     model, video_path, conf_threshold=0.25, save_path=None,
-    roi_position=0.7, max_disappeared=50, max_distance=40
+    roi_position=0.7, max_disappeared=50, max_distance=40,
+    direction="tb",
 ):
     """Detect and count eggs crossing a ROI line in a video."""
     cap = cv2.VideoCapture(video_path)
@@ -299,7 +312,12 @@ def detect_and_annotate_video(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     is_stream = total_frames <= 0
 
-    roi_y = int(height * roi_position)
+    if direction == "tb":
+        roi_y = int(height * roi_position)
+        roi_x = None
+    else:
+        roi_x = int(width * roi_position)
+        roi_y = None
 
     writer = None
     if save_path:
@@ -325,7 +343,10 @@ def detect_and_annotate_video(
         print(f"Processing live stream: {video_path}")
     else:
         print(f"Processing video: {video_path} ({total_frames} frames at {fps:.1f} FPS)")
-    print(f"ROI counting line at y={roi_y} ({roi_position*100:.0f}% from top)")
+    if direction == "tb":
+        print(f"ROI counting line at y={roi_y} ({roi_position*100:.0f}% from top)")
+    else:
+        print(f"ROI counting line at x={roi_x} ({roi_position*100:.0f}% from left)")
 
     while True:
         ret, frame = cap.read()
@@ -374,13 +395,22 @@ def detect_and_annotate_video(
         for obj_id, (cx, cy) in objects.items():
             if obj_id in counted_ids:
                 continue
-            prev_y = prev_positions.get(obj_id)
-            if prev_y is not None:
-                if (prev_y >= roi_y > cy) or (prev_y <= roi_y < cy):
-                    total_count += 1
-                    counted_ids.add(obj_id)
-                    flash_events.append((int(cx), int(cy), frame_num))
-            prev_positions[obj_id] = cy
+            if direction == "tb":
+                prev_pos = prev_positions.get(obj_id)
+                cur_pos = cy
+                line = roi_y
+            else:
+                prev_pos = prev_positions.get(obj_id)
+                cur_pos = cx
+                line = roi_x
+
+            if prev_pos is not None and (
+                (prev_pos >= line > cur_pos) or (prev_pos <= line < cur_pos)
+            ):
+                total_count += 1
+                counted_ids.add(obj_id)
+                flash_events.append((int(cx), int(cy), frame_num))
+            prev_positions[obj_id] = cur_pos
 
         for old_id in list(prev_positions.keys()):
             if old_id not in active_ids:
@@ -405,7 +435,10 @@ def detect_and_annotate_video(
             draw_bbox(annotated, info["x1"], info["y1"],
                       info["x2"], info["y2"], is_counted, info["conf"])
 
-        draw_roi_line(annotated, roi_y, width, frame_num)
+        if direction == "tb":
+            draw_roi_line_tb(annotated, roi_y, width, frame_num)
+        else:
+            draw_roi_line_lr(annotated, roi_x, height, frame_num)
 
         active_flashes = []
         for (fx, fy, f_start) in flash_events:
@@ -459,6 +492,8 @@ if __name__ == "__main__":
                         help="Max pixel distance for matching across frames (default: 40)")
     parser.add_argument("--max-disappeared", type=int, default=50,
                         help="Frames before a lost track is dropped (default: 50)")
+    parser.add_argument("--direction", choices=["tb", "lr"], default="tb",
+                        help="Conveyor direction: 'tb' (top->bottom) or 'lr' (left->right)")
     args = parser.parse_args()
 
     model = load_model(args.model)
@@ -470,6 +505,7 @@ if __name__ == "__main__":
             model, args.input, conf_threshold=args.conf, save_path=args.save,
             roi_position=args.roi, max_distance=args.max_distance,
             max_disappeared=args.max_disappeared,
+            direction=args.direction,
         )
     else:
         image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -492,6 +528,7 @@ if __name__ == "__main__":
                 model, args.input, conf_threshold=args.conf, save_path=args.save,
                 roi_position=args.roi, max_distance=args.max_distance,
                 max_disappeared=args.max_disappeared,
+                direction=args.direction,
             )
 
         else:
