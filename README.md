@@ -65,9 +65,9 @@ docker run -d \
   --gpus all \
   --name egg-counter \
   -p 5590:5590 \
-  -v "$(pwd)/uploads:/app/app/uploads" \
-  -v "$(pwd)/outputs:/app/app/outputs" \
-  -v "$(pwd)/data:/app/app/data" \
+  -v "$(pwd)/app/uploads:/app/app/uploads" \
+  -v "$(pwd)/app/outputs:/app/app/outputs" \
+  -v "$(pwd)/app/data:/app/app/data" \
   -e MODEL_PATH=best.pt \
   --restart unless-stopped \
   basim123/egg-counter:latest
@@ -80,9 +80,9 @@ docker run -d `
   --gpus all `
   --name egg-counter `
   -p 5590:5590 `
-  -v "${PWD}/uploads:/app/app/uploads" `
-  -v "${PWD}/outputs:/app/app/outputs" `
-  -v "${PWD}/data:/app/app/data" `
+  -v "${PWD}/app/uploads:/app/app/uploads" `
+  -v "${PWD}/app/outputs:/app/app/outputs" `
+  -v "${PWD}/app/data:/app/app/data" `
   -e MODEL_PATH=best.pt `
   --restart unless-stopped `
   basim123/egg-counter:latest
@@ -96,9 +96,9 @@ docker pull basim123/egg-counter:cpu
 docker run -d \
   --name egg-counter \
   -p 5590:5590 \
-  -v "$(pwd)/uploads:/app/app/uploads" \
-  -v "$(pwd)/outputs:/app/app/outputs" \
-  -v "$(pwd)/data:/app/app/data" \
+  -v "$(pwd)/app/uploads:/app/app/uploads" \
+  -v "$(pwd)/app/outputs:/app/app/outputs" \
+  -v "$(pwd)/app/data:/app/app/data" \
   -e MODEL_PATH=best.pt \
   --restart unless-stopped \
   basim123/egg-counter:cpu

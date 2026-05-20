@@ -1,3 +1,6 @@
+import os
+import shutil
+import time
 from typing import Optional, Literal
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -7,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.core.stream_manager import StreamManager, SlotConfig, Source, SLOT_RANGE
 from app.core.stream_slot import StreamSlot
 from app.core.batch_scheduler import BatchScheduler
+from app.core.runtime_config import runtime_config
 
 
 router = APIRouter(prefix="/api/streams", tags=["streams"])
@@ -138,12 +142,6 @@ def patch_config(slot: int, body: SlotConfigPatch):
     return new_cfg.to_dict()
 
 
-import os
-import shutil
-
-from app.core.runtime_config import runtime_config
-
-
 @router.post("/{slot}/upload")
 async def upload_to_slot(slot: int, file: UploadFile = File(...)):
     _validate_slot(slot)
@@ -224,9 +222,6 @@ def reset_counter(slot: int):
     _validate_slot(slot)
     _slots[slot].reset_counter()
     return {"status": "reset"}
-
-
-import time
 
 
 def _mjpeg_generator_for(slot: int):
