@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements-cpu.txt
 COPY app/ app/
 COPY best.pt .
 
-RUN mkdir -p app/uploads app/outputs .torch
+RUN mkdir -p app/uploads app/outputs app/data .torch
 
 RUN groupadd --gid 1001 appuser && \
     useradd  --uid 1001 --gid 1001 --no-create-home appuser && \

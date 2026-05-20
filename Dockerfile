@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY app/ app/
 COPY best.pt .
 
-RUN mkdir -p app/uploads app/outputs .torch
+RUN mkdir -p app/uploads app/outputs app/data .torch
 
 # Non-root user for security
 RUN groupadd --gid 1001 appuser && \

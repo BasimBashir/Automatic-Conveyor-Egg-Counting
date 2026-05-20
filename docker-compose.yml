@@ -7,6 +7,7 @@ services:
     volumes:
       - ./app/uploads:/app/app/uploads
       - ./app/outputs:/app/app/outputs
+      - ./app/data:/app/app/data
     environment:
       - RTSP_URL=${RTSP_URL:-}
       - MODEL_PATH=${MODEL_PATH:-best.pt}
@@ -16,6 +17,8 @@ services:
       - IMGSZ=${IMGSZ:-640}
       - MAX_DISTANCE=${MAX_DISTANCE:-50}
       - MAX_DISAPPEARED=${MAX_DISAPPEARED:-15}
+      - STREAM_BATCH_INTERVAL_MS=${STREAM_BATCH_INTERVAL_MS:-33}
+      - STREAM_RECONNECT_BACKOFF_S=${STREAM_RECONNECT_BACKOFF_S:-5}
     deploy:
       resources:
         reservations:
