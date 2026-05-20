@@ -396,21 +396,24 @@ def detect_and_annotate_video(
             if obj_id in counted_ids:
                 continue
             if direction == "tb":
-                prev_pos = prev_positions.get(obj_id)
                 cur_pos = cy
                 line = roi_y
             else:
-                prev_pos = prev_positions.get(obj_id)
                 cur_pos = cx
                 line = roi_x
 
-            if prev_pos is not None and (
-                (prev_pos >= line > cur_pos) or (prev_pos <= line < cur_pos)
-            ):
+            prev_pos = prev_positions.get(obj_id)
+            prev_positions[obj_id] = cur_pos
+
+            if prev_pos is None:
+                if cur_pos >= line:
+                    total_count += 1
+                    counted_ids.add(obj_id)
+                    flash_events.append((int(cx), int(cy), frame_num))
+            elif prev_pos < line <= cur_pos:
                 total_count += 1
                 counted_ids.add(obj_id)
                 flash_events.append((int(cx), int(cy), frame_num))
-            prev_positions[obj_id] = cur_pos
 
         for old_id in list(prev_positions.keys()):
             if old_id not in active_ids:

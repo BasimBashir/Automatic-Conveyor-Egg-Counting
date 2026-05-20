@@ -126,8 +126,12 @@ def patch_config(slot: int, body: SlotConfigPatch):
     mgr = _require_manager()
 
     patch = body.model_dump(exclude_unset=True)
-    if "source" in patch and patch["source"] is not None:
-        patch["source"] = body.source.model_dump(exclude_none=True)
+    if "source" in patch:
+        if patch["source"] is None:
+            # explicit null clears the slot's source
+            pass  # leave patch["source"] = None for the manager
+        else:
+            patch["source"] = body.source.model_dump(exclude_none=True)
     new_cfg = mgr.patch_config(slot, patch)
     if slot in _slots:
         _slots[slot].configure(new_cfg)
