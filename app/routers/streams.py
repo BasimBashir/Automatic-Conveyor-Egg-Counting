@@ -132,3 +132,47 @@ def patch_config(slot: int, body: SlotConfigPatch):
     if slot in _slots:
         _slots[slot].configure(new_cfg)
     return new_cfg.to_dict()
+
+
+import os
+import shutil
+
+from app.core.runtime_config import runtime_config
+
+
+@router.post("/{slot}/upload")
+async def upload_to_slot(slot: int, file: UploadFile = File(...)):
+    _validate_slot(slot)
+    mgr = _require_manager()
+    snap = runtime_config.snapshot()
+
+    upload_dir = snap["upload_dir"]
+    os.makedirs(upload_dir, exist_ok=True)
+
+    target = os.path.join(upload_dir, f"slot{slot}_{file.filename}")
+
+    # Delete previous slot-owned file if present
+    current = mgr.get_config(slot)
+    if current and current.source and current.source.type == "file":
+        prev = current.source.path
+        if prev and os.path.exists(prev) and prev != target:
+            try:
+                os.remove(prev)
+            except OSError:
+                pass
+
+    with open(target, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    new_source = Source(type="file", path=target, filename=file.filename)
+    if current is not None:
+        merged = current.to_dict()
+        merged["source"] = new_source.to_dict()
+        new_cfg = SlotConfig.from_dict(merged)
+    else:
+        new_cfg = SlotConfig(source=new_source)
+
+    mgr.set_config(slot, new_cfg)
+    if slot in _slots:
+        _slots[slot].configure(new_cfg)
+    return new_cfg.to_dict()
