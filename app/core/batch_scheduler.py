@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from typing import Callable
@@ -7,6 +8,8 @@ import numpy as np
 
 from app.core.stream_slot import StreamSlot
 from app.core.annotator import annotate_detections
+
+logger = logging.getLogger(__name__)
 
 
 class BatchScheduler:
@@ -46,7 +49,10 @@ class BatchScheduler:
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             tick_start = time.time()
-            self._tick_once()
+            try:
+                self._tick_once()
+            except Exception:
+                logger.exception("BatchScheduler tick failed; continuing")
             elapsed = time.time() - tick_start
             wait = self.batch_interval_s - elapsed
             if wait > 0:
@@ -71,7 +77,19 @@ class BatchScheduler:
         slot_nums = list(batch.keys())
         frames = [batch[n][1] for n in slot_nums]
 
-        min_conf = min(self.slots[n].config.confidence for n in slot_nums)
+        confidences = []
+        for n in slot_nums:
+            cfg = self.slots[n].config
+            if cfg is not None:
+                confidences.append(cfg.confidence)
+        if not confidences:
+            return
+        # NOTE: model runs at min(confidence) across the batch; per-slot
+        # filtering happens later in _process_result. A few extra low-conf
+        # detections per frame are cheaper than running multiple inference
+        # passes, but be aware: dropping a slot's confidence aggressively
+        # affects NMS load for the whole batch.
+        min_conf = min(confidences)
         model = self.model_provider()
         results = model(frames, imgsz=self.imgsz, conf=min_conf,
                         iou=self.nms_iou, verbose=False)
@@ -83,32 +101,36 @@ class BatchScheduler:
 
     def _process_result(self, slot: StreamSlot, frame_id: int,
                         frame: np.ndarray, result) -> None:
-        det_info = self._extract_detections(result, slot.config.confidence)
+        counter = slot.counter
+        cfg = slot.config
+        if counter is None or cfg is None:
+            return
+        det_info = self._extract_detections(result, cfg.confidence)
 
         if slot.is_counting:
-            objects = slot.counter.update(det_info)
-            counted_ids = slot.counter.counted_ids
-            trails = slot.counter.trails
-            total_count = slot.counter.total_count
-            direction = slot.config.direction
-            roi_pos_px = (slot.counter.roi_y if direction == "tb"
-                          else slot.counter.roi_x)
+            objects = counter.update(det_info)
+            counted_ids = counter.counted_ids
+            trails = counter.trails
+            total_count = counter.total_count
+            direction = cfg.direction
+            roi_pos_px = (counter.roi_y if direction == "tb"
+                          else counter.roi_x)
         else:
             tracker_input = [
                 ((d["x1"]+d["x2"])//2, (d["y1"]+d["y2"])//2,
                  d["x1"], d["y1"], d["x2"], d["y2"])
                 for d in det_info
             ]
-            objects = slot.counter.tracker.update(tracker_input)
+            objects = counter.tracker.update(tracker_input)
             counted_ids = set()
-            trails = slot.counter.trails
+            trails = counter.trails
             total_count = 0
             direction = None
             roi_pos_px = None
 
         flash_with_frame = [(fx, fy, slot.frame_num - i)
                             for i, (fx, fy) in enumerate(
-                                reversed(slot.counter.flash_events[-12:]))]
+                                reversed(counter.flash_events[-12:]))]
 
         annotated = annotate_detections(
             frame=frame,

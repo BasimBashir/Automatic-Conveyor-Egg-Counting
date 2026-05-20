@@ -182,6 +182,8 @@ async def upload_to_slot(slot: int, file: UploadFile = File(...)):
 def start_stream(slot: int):
     _validate_slot(slot)
     mgr = _require_manager()
+    if slot in _slots and _slots[slot].is_playing:
+        return {"status": "already_running"}
     cfg = mgr.get_config(slot)
     if cfg is None or cfg.source is None:
         raise HTTPException(status_code=400, detail="Slot has no source configured")

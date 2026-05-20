@@ -1,9 +1,12 @@
+import logging
 import threading
 import time
 from typing import Optional
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from app.core.stream_manager import SlotConfig
 from app.core.counter import EggCounter
@@ -136,51 +139,57 @@ class StreamSlot:
         return cap
 
     def _capture_loop(self) -> None:
-        while not self._stop_event.is_set():
-            cap = self._open_source()
-            if cap is None:
-                if self.config and self.config.source and self.config.source.type == "rtsp":
-                    time.sleep(self.reconnect_backoff_s)
-                    continue
-                self.is_playing = False
-                return
-
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.is_stream = (self.total_frames <= 0
-                              or (self.config and self.config.source
-                                  and self.config.source.type == "rtsp"))
-            if self.counter is not None:
-                self.counter.set_frame_size(width=width, height=height)
-
-            self._fps_timer = time.time()
-            self._fps_frame_count = 0
-
+        try:
             while not self._stop_event.is_set():
-                ret, frame = cap.read()
-                if not ret:
-                    if self.is_stream:
-                        self.error = "Stream connection lost"
-                        break  # outer loop reconnects
-                    else:
-                        self.is_complete = True
-                        cap.release()
-                        self.is_playing = False
-                        return
+                cap = self._open_source()
+                if cap is None:
+                    if self.config and self.config.source and self.config.source.type == "rtsp":
+                        time.sleep(self.reconnect_backoff_s)
+                        continue
+                    self.is_playing = False
+                    return
 
-                self.frame_num += 1
-                self._fps_frame_count += 1
-                elapsed = time.time() - self._fps_timer
-                if elapsed >= 0.5:
-                    self.fps_display = self._fps_frame_count / elapsed
-                    self._fps_frame_count = 0
-                    self._fps_timer = time.time()
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.is_stream = (self.total_frames <= 0
+                                  or (self.config and self.config.source
+                                      and self.config.source.type == "rtsp"))
+                if self.counter is not None:
+                    self.counter.set_frame_size(width=width, height=height)
 
-                with self._frame_lock:
-                    self._pending_frame = frame
-                    self._pending_frame_id += 1
+                self._fps_timer = time.time()
+                self._fps_frame_count = 0
 
-            cap.release()
-            if self._stop_event.is_set():
-                break
+                while not self._stop_event.is_set():
+                    ret, frame = cap.read()
+                    if not ret:
+                        if self.is_stream:
+                            self.error = "Stream connection lost"
+                            break  # outer loop reconnects
+                        else:
+                            self.is_complete = True
+                            cap.release()
+                            self.is_playing = False
+                            return
+
+                    self.frame_num += 1
+                    self._fps_frame_count += 1
+                    elapsed = time.time() - self._fps_timer
+                    if elapsed >= 0.5:
+                        self.fps_display = self._fps_frame_count / elapsed
+                        self._fps_frame_count = 0
+                        self._fps_timer = time.time()
+
+                    with self._frame_lock:
+                        self._pending_frame = frame
+                        self._pending_frame_id += 1
+
+                cap.release()
+                if self._stop_event.is_set():
+                    break
+        except Exception as e:
+            logger.exception("StreamSlot %s capture loop crashed", self.slot)
+            self.error = f"Capture loop crashed: {e}"
+        finally:
+            self.is_playing = False
