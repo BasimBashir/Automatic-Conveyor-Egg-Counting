@@ -218,3 +218,34 @@ def reset_counter(slot: int):
     _validate_slot(slot)
     _slots[slot].reset_counter()
     return {"status": "reset"}
+
+
+import time
+
+
+def _mjpeg_generator_for(slot: int):
+    while True:
+        s = _slots.get(slot)
+        if s is None or not s.is_playing:
+            break
+        frame_bytes = s.latest_frame
+        if frame_bytes:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                + frame_bytes
+                + b"\r\n"
+            )
+        time.sleep(0.03)
+
+
+@router.get("/{slot}/feed")
+def stream_feed(slot: int):
+    _validate_slot(slot)
+    s = _slots.get(slot)
+    if s is None or not s.is_playing:
+        raise HTTPException(status_code=400, detail="Stream not active")
+    return StreamingResponse(
+        _mjpeg_generator_for(slot),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
