@@ -1,14 +1,22 @@
 import os
 import uuid
 import shutil
+from typing import Literal, Optional
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
+from pydantic import BaseModel, Field
 
 from app.core.runtime_config import runtime_config
 from app.core.model_cache import get_model
 from app.core.video_processor import VideoProcessor
 
 router = APIRouter(prefix="/api/video", tags=["video"])
+
+
+class VideoConfigPatch(BaseModel):
+    direction: Optional[Literal["tb", "lr"]] = None
+    roi_position: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 _sessions: dict[str, VideoProcessor] = {}
 
@@ -90,6 +98,22 @@ def video_feed(session_id: str):
 @router.get("/{session_id}/status")
 def video_status(session_id: str):
     return _get_session(session_id).get_status()
+
+
+@router.get("/{session_id}/config")
+def get_video_config(session_id: str):
+    proc = _get_session(session_id)
+    return {"direction": proc.direction, "roi_position": proc.roi_position}
+
+
+@router.patch("/{session_id}/config")
+def patch_video_config(session_id: str, body: VideoConfigPatch):
+    proc = _get_session(session_id)
+    direction = body.direction if body.direction is not None else proc.direction
+    roi_position = (body.roi_position if body.roi_position is not None
+                    else proc.roi_position)
+    proc.update_config(direction=direction, roi_position=roi_position)
+    return {"direction": proc.direction, "roi_position": proc.roi_position}
 
 
 @router.get("/{session_id}/download")

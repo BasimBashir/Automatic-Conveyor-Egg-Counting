@@ -15,6 +15,8 @@ const eggCount = document.getElementById("eggCount");
 const frameNum = document.getElementById("frameNum");
 const fpsVal = document.getElementById("fpsVal");
 const downloadBtn = document.getElementById("downloadBtn");
+const playerRoi = document.getElementById("playerRoi");
+const playerRoiVal = document.getElementById("playerRoiVal");
 
 let sessionId = null;
 let pollInterval = null;
@@ -27,6 +29,43 @@ document.querySelectorAll('[data-dir]').forEach(btn => {
         selectedDirection = btn.dataset.dir;
     });
 });
+
+document.querySelectorAll('[data-pdir]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        document.querySelectorAll('[data-pdir]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (sessionId) {
+            await fetch(`/api/video/${sessionId}/config`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ direction: btn.dataset.pdir }),
+            });
+        }
+    });
+});
+
+playerRoi.addEventListener("input", () => {
+    playerRoiVal.textContent = parseFloat(playerRoi.value).toFixed(2);
+});
+playerRoi.addEventListener("change", async () => {
+    if (sessionId) {
+        await fetch(`/api/video/${sessionId}/config`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roi_position: parseFloat(playerRoi.value) }),
+        });
+    }
+});
+
+function syncPlayerControls(data) {
+    const dir = data.direction || "tb";
+    const roi = data.roi_position ?? 0.7;
+    document.querySelectorAll('[data-pdir]').forEach(b => {
+        b.classList.toggle('active', b.dataset.pdir === dir);
+    });
+    playerRoi.value = roi;
+    playerRoiVal.textContent = parseFloat(roi).toFixed(2);
+}
 
 uploadZone.addEventListener("click", () => fileInput.click());
 uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
@@ -48,6 +87,7 @@ async function handleUpload(file) {
         const resp = await fetch("/api/video/upload", { method: "POST", body: formData });
         const data = await resp.json();
         sessionId = data.session_id;
+        syncPlayerControls(data);
         uploadCard.style.display = "none";
         playerSection.style.display = "block";
     } catch (err) {

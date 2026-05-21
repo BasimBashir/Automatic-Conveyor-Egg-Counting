@@ -33,6 +33,8 @@ class VideoProcessor:
         self.imgsz = imgsz
         self.is_stream = is_stream
         self.save_raw_path = save_raw_path
+        self.max_disappeared = max_disappeared
+        self.max_distance = max_distance
 
         self.counter = EggCounter(direction=direction, roi_position=roi_position,
                                   max_disappeared=max_disappeared,
@@ -83,6 +85,29 @@ class VideoProcessor:
 
     def stop_counting(self):
         self.is_counting = False
+
+    def update_config(self, direction: str, roi_position: float) -> None:
+        """Reconfigure direction and ROI. Rebuilds the counter (resets count).
+
+        Safe to call any time. If the capture loop has already learned the
+        frame size, the new counter inherits it so the pixel ROI is correct
+        on the next frame.
+        """
+        if direction not in ("tb", "lr"):
+            raise ValueError(f"direction must be 'tb' or 'lr', got {direction!r}")
+        if not (0.0 <= roi_position <= 1.0):
+            raise ValueError(f"roi_position must be in [0,1], got {roi_position}")
+
+        prior_w = self.counter.frame_width
+        prior_h = self.counter.frame_height
+
+        self.direction = direction
+        self.roi_position = roi_position
+        self.counter = EggCounter(direction=direction, roi_position=roi_position,
+                                  max_disappeared=self.max_disappeared,
+                                  max_distance=self.max_distance)
+        if prior_w is not None and prior_h is not None:
+            self.counter.set_frame_size(width=prior_w, height=prior_h)
 
     def get_status(self) -> dict:
         return {
