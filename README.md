@@ -167,22 +167,59 @@ Grid polls `/api/streams/status` every second.
 
 ## REST API reference
 
-Base URL: `http://<host>:5590`. All endpoints return JSON unless marked MJPEG / image.
+Base URL: `http://<host>:5590`. All endpoints return JSON unless marked MJPEG / image. Interactive Swagger UI at **`http://localhost:5590/docs`**.
 
 ### Conventions
 
 - Slots are integers `1..10`. Other values → `404`.
-- `direction` is `"tb"` or `"lr"`. `roi_position` is a float `[0, 1]` interpreted as a fraction along the direction-of-travel axis.
-- MJPEG endpoints return `multipart/x-mixed-replace; boundary=frame`. Browsers and Electron handle this natively in `<img src="...">`.
+- `direction` is `"tb"` (top → bottom) or `"lr"` (left → right). `roi_position` is a float in `[0, 1]` interpreted as a fraction along the direction-of-travel axis.
+- All JSON bodies use `Content-Type: application/json`. Multipart bodies use `multipart/form-data`.
+- MJPEG endpoints return `multipart/x-mixed-replace; boundary=frame`. Browsers and Electron consume them with `<img src="…">`.
+- Common error codes: `400` (validation), `404` (unknown slot/session), `503` (manager not ready during boot).
+
+---
 
 ### Health
 
-`GET /health` — GPU availability, current model, runtime config.
+#### `GET /health`
+
+Service health, GPU availability, current model path, and the global runtime config snapshot. Use as a liveness probe.
+
+**Returns (`200`):**
+```json
+{
+  "status": "ok",
+  "gpu_available": true,
+  "device_name": "NVIDIA T4",
+  "model_path": "best.pt",
+  "config": {
+    "confidence": 0.25, "nms_iou": 0.45, "imgsz": 640,
+    "roi_position": 0.7, "max_distance": 40, "max_disappeared": 50
+  }
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:5590/health
+```
+
+---
 
 ### Image detection
 
-`POST /api/image/detect` — multipart upload `file=<image>`. Returns annotated JPEG; `X-Egg-Count` header carries the count.
+#### `POST /api/image/detect`
 
+One-shot detect-and-count on a single image. Returns the annotated image inline as JPEG; the count is in an HTTP header.
+
+**Body** (`multipart/form-data`):
+- `file` — image file (JPG / PNG / BMP / WEBP).
+
+**Returns (`200`):** `image/jpeg` (annotated). Header `X-Egg-Count: <integer>`.
+
+**Status:** `200` on success; `400` if the upload isn't a readable image.
+
+**Example:**
 ```bash
 curl -X POST http://localhost:5590/api/image/detect \
   -F file=@egg.jpg -o annotated.jpg -D headers.txt
@@ -199,65 +236,206 @@ print("count:", r.headers["X-Egg-Count"])
 
 ```javascript
 const fd = new FormData();
-fd.append("file", file);  // a File from <input type="file">
+fd.append("file", file);          // a File from <input type="file">
 const r = await fetch("/api/image/detect", { method: "POST", body: fd });
 const count = r.headers.get("X-Egg-Count");
 const blob = await r.blob();
 ```
 
-### Video processing (one-shot upload)
+---
 
+### Video sessions
+
+One-shot processing of an uploaded video. The upload returns a `session_id`; subsequent calls take that ID in the path. A session keeps running until the file ends, you call `/stop`, or the process restarts.
+
+#### `POST /api/video/upload`
+
+Upload a video file. Creates a session keyed by the returned `session_id`. The file is stored under `app/uploads/{session_id}_<filename>` and an annotated H.264 download is rendered to `app/outputs/` once you `/stop` or the file completes.
+
+**Body** (`multipart/form-data`):
+- `file` — video (MP4 / AVI / MOV / MKV).
+- `direction` — `"tb"` or `"lr"`. Default `"tb"`.
+- `roi_position` — float `[0, 1]`. Default = global `ROI_POSITION`.
+
+**Returns (`200`):**
+```json
+{ "session_id": "7f83de97", "filename": "input.mp4",
+  "direction": "tb", "roi_position": 0.7 }
 ```
-POST   /api/video/upload                 # multipart: file, direction?, roi_position?
-POST   /api/video/{id}/start             # begin playback / inference
-POST   /api/video/{id}/stop
-POST   /api/video/{id}/counting/start
-POST   /api/video/{id}/counting/stop
-GET    /api/video/{id}/feed              # MJPEG
-GET    /api/video/{id}/status            # { egg_count, frame_num, fps, ... }
-GET    /api/video/{id}/download          # H.264 .mp4
-```
 
-Upload example:
+**Status:** `200` on success; `400` for invalid `direction` or `roi_position`.
 
+**Example:**
 ```bash
 curl -X POST http://localhost:5590/api/video/upload \
   -F file=@conveyor.mp4 -F direction=lr -F roi_position=0.5
 ```
 
-```python
-import requests
-r = requests.post("http://localhost:5590/api/video/upload",
-                  files={"file": open("conveyor.mp4", "rb")},
-                  data={"direction": "lr", "roi_position": 0.5})
-sid = r.json()["session_id"]
-requests.post(f"http://localhost:5590/api/video/{sid}/start")
-requests.post(f"http://localhost:5590/api/video/{sid}/counting/start")
+#### `GET /api/video/{session_id}/config`
+
+Return the current conveyor direction and ROI of the session.
+
+**Returns (`200`):**
+```json
+{ "direction": "tb", "roi_position": 0.7 }
 ```
 
-### Streams (multi-slot)
+**Status:** `404` if session unknown.
 
+#### `PATCH /api/video/{session_id}/config`
+
+Change direction and/or ROI **after** upload. Safe to call before or during playback; rebuilds the underlying counter, which resets `egg_count` for this session.
+
+**Body** (JSON, partial):
+```json
+{ "direction": "lr", "roi_position": 0.4 }
 ```
-GET    /api/streams                       # all 10 slots: [{slot, config, runtime}]
-GET    /api/streams/status                # aggregate runtime keyed by slot
-GET    /api/streams/{slot}                # single slot
-GET    /api/streams/{slot}/status         # single slot runtime
-PUT    /api/streams/{slot}/config         # set full config
-PATCH  /api/streams/{slot}/config         # partial update
-POST   /api/streams/{slot}/upload         # multipart: file → source becomes type=file
-POST   /api/streams/{slot}/start
-POST   /api/streams/{slot}/stop
-POST   /api/streams/{slot}/counting/start
-POST   /api/streams/{slot}/counting/stop
-POST   /api/streams/{slot}/reset          # zero this slot's counter
-GET    /api/streams/{slot}/feed           # MJPEG
+Either or both fields may be omitted to keep the current value.
+
+**Returns (`200`):** the new `{direction, roi_position}` echo.
+
+**Status:** `200` on success; `400` for invalid values; `404` if session unknown.
+
+**Example:**
+```bash
+curl -X PATCH http://localhost:5590/api/video/7f83de97/config \
+  -H 'Content-Type: application/json' \
+  -d '{"direction":"lr","roi_position":0.4}'
 ```
 
-**SlotConfig** body:
+#### `POST /api/video/{session_id}/start`
 
+Begin background playback + inference. Idempotent — calling while already playing is a no-op.
+
+**Returns (`200`):** `{ "status": "playing" }`.
+
+#### `POST /api/video/{session_id}/stop`
+
+Stop playback. Finalizes the H.264 re-encode if one was requested.
+
+**Returns (`200`):** `{ "status": "stopped" }`.
+
+#### `POST /api/video/{session_id}/counting/start`
+
+Enable line-crossing counting. Detections are still produced before this call, but the count only increments while counting is enabled.
+
+**Returns (`200`):** `{ "status": "counting" }`.
+
+#### `POST /api/video/{session_id}/counting/stop`
+
+Disable counting (detections still flow into the live preview).
+
+**Returns (`200`):** `{ "status": "not_counting" }`.
+
+#### `GET /api/video/{session_id}/status`
+
+Per-session runtime snapshot. Poll this once a second from a client to drive a progress UI.
+
+**Returns (`200`):**
 ```json
 {
-  "source": { "type": "rtsp", "url": "rtsp://user:pass@10.0.0.13:554/cam" },
+  "is_playing": true, "is_counting": false, "egg_count": 0,
+  "frame_num": 142, "total_frames": 1800, "fps": 27.4,
+  "is_complete": false, "is_stream": false,
+  "direction": "tb", "roi_position": 0.7, "error": null
+}
+```
+
+#### `GET /api/video/{session_id}/feed`
+
+Live MJPEG of annotated frames. Open in `<img src="…">` or with an MJPEG viewer.
+
+**Returns:** `multipart/x-mixed-replace; boundary=frame`. Stream stays open as long as the session is playing.
+
+#### `GET /api/video/{session_id}/download`
+
+Returns the H.264-encoded annotated output as a file download. Only available after the session has stopped (or completed); call `POST /stop` first if needed.
+
+**Returns (`200`):** `video/mp4` (`Content-Disposition: attachment; filename=egg_count_<id>.mp4`).
+
+**Status:** `404` if the output isn't ready yet (session still playing without stopping).
+
+---
+
+### Streams (10-slot multi-stream)
+
+Slot configuration persists across container restarts (lives in `app/data/streams.json`).
+
+#### `GET /api/streams`
+
+List all 10 slots with their config and runtime state. Useful for a dashboard initial render.
+
+**Returns (`200`):** array of length 10.
+```json
+[
+  { "slot": 1, "config": { ... } | null, "runtime": { ... } },
+  ...
+]
+```
+
+#### `GET /api/streams/status`
+
+Aggregate runtime for all 10 slots in one round-trip. **This is the polling endpoint for a multi-stream dashboard** — call once per second.
+
+**Returns (`200`):** map keyed by slot.
+```json
+{
+  "1": { "is_connected": true, "is_counting": true, "egg_count": 312,
+         "fps": 27.4, "direction": "tb", "roi_position": 0.7, "error": null,
+         "is_stream": true, "is_complete": false,
+         "frame_num": 18420, "total_frames": 0 },
+  "2": { ... },
+  ...
+}
+```
+
+**Example:**
+```bash
+curl -s http://localhost:5590/api/streams/status | python -m json.tool
+```
+
+```python
+import requests, time
+BASE = "http://localhost:5590"
+while True:
+    s = requests.get(f"{BASE}/api/streams/status").json()
+    for slot, r in s.items():
+        print(slot, r["egg_count"], r["fps"])
+    time.sleep(1)
+```
+
+#### `GET /api/streams/{slot}`
+
+Single slot — both config and runtime.
+
+**Path params:** `slot` (1..10).
+
+**Returns (`200`):**
+```json
+{
+  "slot": 3,
+  "config": { "source": {...}, "direction": "tb", "roi_position": 0.7,
+              "confidence": 0.25, "enabled": true, "count_on_start": false } | null,
+  "runtime": { ...same shape as in /api/streams/status... }
+}
+```
+
+**Status:** `404` for slot < 1 or > 10.
+
+#### `GET /api/streams/{slot}/status`
+
+Runtime-only snapshot for one slot. Smaller payload than `GET /api/streams/{slot}`.
+
+**Returns (`200`):** same `runtime` object as above.
+
+#### `PUT /api/streams/{slot}/config`
+
+Set the slot's **full** config. Replaces any prior config and persists to `streams.json`. If the slot has a capture thread running, the new config is applied immediately (counter is rebuilt → count resets).
+
+**Body** (JSON):
+```json
+{
+  "source": { "type": "rtsp", "url": "rtsp://user:pw@10.0.0.13:554/cam" },
   "direction": "lr",
   "roi_position": 0.5,
   "confidence": 0.3,
@@ -266,129 +444,162 @@ GET    /api/streams/{slot}/feed           # MJPEG
 }
 ```
 
-Or with a file source:
-
+Or a file source:
 ```json
 {
-  "source": { "type": "file", "path": "app/uploads/slot3_test.mp4", "filename": "test.mp4" }
+  "source": { "type": "file",
+              "path": "app/uploads/slot3_test.mp4",
+              "filename": "test.mp4" }
 }
 ```
 
-#### Configure slot 3 (left→right), connect, start counting
+`source` may be `null` to leave the slot unconfigured.
 
+**Returns (`200`):** the resulting config object.
+
+**Status:** `400` on validation errors (bad direction / out-of-range floats); `404` if slot ∉ 1..10.
+
+**Example:**
 ```bash
 curl -X PUT http://localhost:5590/api/streams/3/config \
   -H 'Content-Type: application/json' \
   -d '{
     "source": {"type": "rtsp", "url": "rtsp://user:pw@10.0.0.13:554/cam"},
-    "direction": "lr",
-    "roi_position": 0.5,
-    "confidence": 0.3,
-    "enabled": true,
-    "count_on_start": true
-  }'
-curl -X POST http://localhost:5590/api/streams/3/start
-```
-
-```python
-import requests
-BASE = "http://localhost:5590"
-requests.put(f"{BASE}/api/streams/3/config", json={
-    "source": {"type": "rtsp", "url": "rtsp://user:pw@10.0.0.13:554/cam"},
     "direction": "lr", "roi_position": 0.5, "confidence": 0.3,
-    "enabled": True, "count_on_start": True,
-})
-requests.post(f"{BASE}/api/streams/3/start")
+    "enabled": true, "count_on_start": true
+  }'
 ```
 
-```javascript
-const BASE = "http://localhost:5590";
-await fetch(`${BASE}/api/streams/3/config`, {
-  method: "PUT",
-  headers: {"Content-Type": "application/json"},
-  body: JSON.stringify({
-    source: {type: "rtsp", url: "rtsp://user:pw@10.0.0.13:554/cam"},
-    direction: "lr", roi_position: 0.5, confidence: 0.3,
-    enabled: true, count_on_start: true,
-  }),
-});
-await fetch(`${BASE}/api/streams/3/start`, {method: "POST"});
+#### `PATCH /api/streams/{slot}/config`
+
+Partial update. Any field omitted from the body keeps its current value. Setting `"source": null` clears the source.
+
+**Body** (any subset):
+```json
+{ "roi_position": 0.6, "confidence": 0.35 }
 ```
 
-#### Upload a video file as the source for slot 5
+**Returns (`200`):** the full new config.
 
+**Status:** `400` on invalid values; `404` for unknown slot.
+
+#### `POST /api/streams/{slot}/upload`
+
+Attach a local video file to the slot. The file is stored under `app/uploads/slot{N}_<filename>` and the slot's `source` switches to `{"type": "file", "path": "...", "filename": "..."}`. Any previous slot-owned file is deleted.
+
+**Body** (`multipart/form-data`):
+- `file` — video.
+
+**Returns (`200`):** the slot's new config.
+
+**Example:**
 ```bash
 curl -X POST http://localhost:5590/api/streams/5/upload \
   -F file=@benchmark.mp4
-curl -X PATCH http://localhost:5590/api/streams/5/config \
-  -H 'Content-Type: application/json' \
-  -d '{"direction": "tb", "roi_position": 0.7, "enabled": true, "count_on_start": true}'
-curl -X POST http://localhost:5590/api/streams/5/start
 ```
 
-```python
-import requests
-BASE = "http://localhost:5590"
-requests.post(f"{BASE}/api/streams/5/upload",
-              files={"file": open("benchmark.mp4", "rb")})
-requests.patch(f"{BASE}/api/streams/5/config",
-               json={"direction": "tb", "roi_position": 0.7,
-                     "enabled": True, "count_on_start": True})
-requests.post(f"{BASE}/api/streams/5/start")
+#### `POST /api/streams/{slot}/start`
+
+Open the slot's source and begin capture + inference. The slot's `count_on_start` flag determines whether counting auto-enables.
+
+**Returns (`200`):**
+- `{ "status": "started" }` — capture thread launched.
+- `{ "status": "already_running" }` — slot was already playing (idempotent; preserves count).
+
+**Status:** `400` if the slot has no source configured.
+
+#### `POST /api/streams/{slot}/stop`
+
+Stop the capture thread. Counter state and last frame are preserved; calling `start` again resumes from scratch.
+
+**Returns (`200`):** `{ "status": "stopped" }`.
+
+#### `POST /api/streams/{slot}/counting/start`
+
+Enable counting on an already-playing slot.
+
+**Returns (`200`):** `{ "status": "counting" }`.
+
+**Status:** `400` if the slot isn't playing.
+
+#### `POST /api/streams/{slot}/counting/stop`
+
+Disable counting (detections still flow).
+
+**Returns (`200`):** `{ "status": "not_counting" }`.
+
+#### `POST /api/streams/{slot}/reset`
+
+Zero the slot's count and clear tracker / trail / flash state. Safe to call any time.
+
+**Returns (`200`):** `{ "status": "reset" }`.
+
+#### `GET /api/streams/{slot}/feed`
+
+Annotated MJPEG live feed for the slot. Embed in `<img src="…">`.
+
+**Returns:** `multipart/x-mixed-replace; boundary=frame`. Closes when the slot stops.
+
+**Status:** `400` if the slot isn't playing.
+
+---
+
+### Configuration (global runtime)
+
+These knobs apply to defaults across the service. Per-slot / per-session settings override them.
+
+#### `GET /api/config`
+
+Return current live settings.
+
+**Returns (`200`):**
+```json
+{
+  "rtsp_url": "", "model_path": "best.pt",
+  "roi_position": 0.7, "confidence": 0.25, "nms_iou": 0.45,
+  "imgsz": 640, "max_distance": 40, "max_disappeared": 50,
+  "upload_dir": "app/uploads", "output_dir": "app/outputs",
+  "data_dir": "app/data",
+  "stream_batch_interval_ms": 33, "stream_reconnect_backoff_s": 5.0
+}
 ```
 
-```javascript
-const fd = new FormData();
-fd.append("file", file);  // a File from <input type="file">
-await fetch("/api/streams/5/upload", {method: "POST", body: fd});
-await fetch("/api/streams/5/config", {
-  method: "PATCH",
-  headers: {"Content-Type": "application/json"},
-  body: JSON.stringify({direction: "tb", roi_position: 0.7,
-                        enabled: true, count_on_start: true}),
-});
-await fetch("/api/streams/5/start", {method: "POST"});
-```
+#### `PATCH /api/config`
 
-#### Poll all 10 slots in one round-trip
+Update settings without restarting. Changing `model_path` triggers a synchronous model reload (rolls back on failure).
 
+**Body** (any subset of the GET response's fields).
+
+**Returns (`200`):** the full new config.
+
+**Example:**
 ```bash
-curl -s http://localhost:5590/api/streams/status | python -m json.tool
+curl -X PATCH http://localhost:5590/api/config \
+  -H 'Content-Type: application/json' \
+  -d '{"confidence": 0.35, "imgsz": 800}'
 ```
 
-```python
-import requests, time
-while True:
-    s = requests.get("http://localhost:5590/api/streams/status").json()
-    for slot, runtime in s.items():
-        print(slot, runtime["egg_count"], runtime["fps"])
-    time.sleep(1)
-```
-
-```javascript
-setInterval(async () => {
-  const s = await (await fetch("/api/streams/status")).json();
-  for (const [slot, runtime] of Object.entries(s)) {
-    console.log(slot, runtime.egg_count, runtime.fps);
-  }
-}, 1000);
-```
-
-### Configuration
-
-```
-GET    /api/config                       # current live settings (globals)
-PATCH  /api/config                       # update settings; no restart
-```
+---
 
 ### TensorRT export
 
-```
-POST   /api/export/tensorrt              # start background TensorRT export
-GET    /api/export/tensorrt              # poll status; auto-switches model_path on DONE
-```
+Convert the loaded `.pt` model to an `.engine` (TensorRT) file for faster GPU inference. Requires the GPU image and a compatible NVIDIA driver/toolkit.
 
-Interactive Swagger docs: `http://localhost:5590/docs`.
+#### `POST /api/export/tensorrt`
+
+Start a background export. Idempotent — calling while one is in progress returns the current state.
+
+**Returns (`200`):** `{ "state": "IN_PROGRESS", "progress": 0 }` (or `IDLE` → moves to `IN_PROGRESS`).
+
+#### `GET /api/export/tensorrt`
+
+Poll the export state. When `state == "DONE"` the service has already switched `model_path` to the new `.engine` file.
+
+**Returns (`200`):**
+```json
+{ "state": "DONE", "progress": 100, "engine_path": "best.engine", "error": null }
+```
+Possible `state` values: `IDLE`, `IN_PROGRESS`, `DONE`, `ERROR`.
 
 ---
 
