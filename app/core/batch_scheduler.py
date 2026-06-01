@@ -91,21 +91,23 @@ class BatchScheduler:
         # affects NMS load for the whole batch.
         min_conf = min(confidences)
         model = self.model_provider()
-        results = model(frames, imgsz=self.imgsz, conf=min_conf,
-                        iou=self.nms_iou, verbose=False)
+        model.conf = min_conf
+        model.iou = self.nms_iou
+        results = model(frames, size=self.imgsz)
+        per_frame_dfs = results.pandas().xyxy
 
-        for slot_num, result in zip(slot_nums, results):
+        for slot_num, det_df in zip(slot_nums, per_frame_dfs):
             slot = self.slots[slot_num]
             frame_id, frame = batch[slot_num]
-            self._process_result(slot, frame_id, frame, result)
+            self._process_result(slot, frame_id, frame, det_df)
 
     def _process_result(self, slot: StreamSlot, frame_id: int,
-                        frame: np.ndarray, result) -> None:
+                        frame: np.ndarray, det_df) -> None:
         counter = slot.counter
         cfg = slot.config
         if counter is None or cfg is None:
             return
-        det_info = self._extract_detections(result, cfg.confidence)
+        det_info = self._extract_detections(det_df, cfg.confidence)
 
         if slot.is_counting:
             objects = counter.update(det_info)
@@ -152,20 +154,18 @@ class BatchScheduler:
         slot.set_annotated_jpeg(jpeg.tobytes())
 
     @staticmethod
-    def _extract_detections(result, conf_threshold: float) -> list[dict]:
-        """Convert an Ultralytics Results object to list[dict] format."""
+    def _extract_detections(det_df, conf_threshold: float) -> list[dict]:
+        """Convert a YOLOv5 pandas detections DataFrame to list[dict] format."""
         out = []
-        boxes = getattr(result, "boxes", None)
-        if boxes is None:
+        if det_df is None or len(det_df) == 0:
             return out
-        xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, "cpu") else boxes.xyxy
-        confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else boxes.conf
-        for (x1, y1, x2, y2), c in zip(xyxy, confs):
-            if float(c) < conf_threshold:
+        for _, det in det_df.iterrows():
+            c = float(det["confidence"])
+            if c < conf_threshold:
                 continue
             out.append({
-                "x1": int(x1), "y1": int(y1),
-                "x2": int(x2), "y2": int(y2),
-                "conf": float(c),
+                "x1": int(det["xmin"]), "y1": int(det["ymin"]),
+                "x2": int(det["xmax"]), "y2": int(det["ymax"]),
+                "conf": c,
             })
         return out
