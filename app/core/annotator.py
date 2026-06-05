@@ -222,9 +222,13 @@ def annotate_detections(frame, detections, objects, counted_ids, trails,
         color = COLORS["counted"] if obj_id in counted_ids else COLORS["uncounted"]
         cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
-    tracker_total = max(len(objects), 0)
-    draw_dashboard(annotated, total_count, len(objects), tracker_total,
-                   frame_num, total_frames, is_stream, fps_display, width)
+    # Live RTSP streams show counts/FPS on the UI and via the API, so the
+    # on-frame dashboard panel is omitted. The progress dashboard is still
+    # drawn for finite video files.
+    if not is_stream:
+        tracker_total = max(len(objects), 0)
+        draw_dashboard(annotated, total_count, len(objects), tracker_total,
+                       frame_num, total_frames, is_stream, fps_display, width)
 
     if direction is not None and roi_pos_px is not None:
         if direction == "tb":

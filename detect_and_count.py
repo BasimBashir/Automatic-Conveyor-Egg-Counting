@@ -459,10 +459,13 @@ def detect_and_annotate_video(
                 color = COLORS["uncounted"]
             cv2.circle(annotated, (int(cx), int(cy)), 3, color, -1, cv2.LINE_AA)
 
-        draw_dashboard(
-            annotated, total_count, len(objects), tracker.next_id,
-            frame_num, total_frames, is_stream, fps_display, width
-        )
+        # Live streams report counts/FPS on the UI and via the API, so the
+        # on-frame dashboard panel is omitted. It is still drawn for video files.
+        if not is_stream:
+            draw_dashboard(
+                annotated, total_count, len(objects), tracker.next_id,
+                frame_num, total_frames, is_stream, fps_display, width
+            )
 
         if writer:
             writer.write(annotated)
