@@ -50,8 +50,6 @@ def test_put_config_creates_slot(client):
     new_cfg = {
         "source": {"type": "rtsp", "url": "rtsp://test/feed"},
         "direction": "lr",
-        "roi_position": 0.4,
-        "confidence": 0.3,
         "enabled": False,
         "count_on_start": False,
     }
@@ -66,13 +64,12 @@ def test_put_config_creates_slot(client):
 def test_patch_config_partial(client):
     client.put("/api/streams/4/config", json={
         "source": {"type": "rtsp", "url": "rtsp://orig"},
-        "direction": "tb", "roi_position": 0.7, "confidence": 0.25,
-        "enabled": False, "count_on_start": False,
+        "direction": "tb", "enabled": False, "count_on_start": False,
     })
     resp = client.patch("/api/streams/4/config",
-                        json={"roi_position": 0.2})
+                        json={"direction": "lr"})
     assert resp.status_code == 200
-    assert resp.json()["roi_position"] == 0.2
+    assert resp.json()["direction"] == "lr"
     assert resp.json()["source"]["url"] == "rtsp://orig"
 
 

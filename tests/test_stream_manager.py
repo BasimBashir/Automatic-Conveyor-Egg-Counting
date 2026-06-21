@@ -39,7 +39,7 @@ def test_bootstrap_does_not_overwrite_existing_file(tmp_streams_file):
     initial = {str(i): None for i in range(1, 11)}
     initial["1"] = {
         "source": {"type": "rtsp", "url": "rtsp://existing/feed"},
-        "direction": "lr", "roi_position": 0.4, "confidence": 0.3,
+        "direction": "lr",
         "enabled": False, "count_on_start": True,
     }
     tmp_streams_file.write_text(json.dumps(initial))
@@ -59,8 +59,7 @@ def test_set_config_persists(tmp_streams_file):
 
     new_cfg = SlotConfig(
         source=Source(type="file", path="app/uploads/slot3.mp4", filename="x.mp4"),
-        direction="lr", roi_position=0.6, confidence=0.4,
-        enabled=True, count_on_start=False,
+        direction="lr", enabled=True, count_on_start=False,
     )
     mgr.set_config(3, new_cfg)
 
@@ -73,10 +72,10 @@ def test_patch_config_partial_update(tmp_streams_file):
     mgr = StreamManager(streams_path=str(tmp_streams_file))
     mgr.bootstrap(rtsp_url_env="rtsp://orig/feed")
 
-    mgr.patch_config(1, {"direction": "lr", "roi_position": 0.2})
+    mgr.patch_config(1, {"direction": "lr", "count_on_start": True})
     cfg = mgr.get_config(1)
     assert cfg.direction == "lr"
-    assert cfg.roi_position == 0.2
+    assert cfg.count_on_start is True
     assert cfg.source.url == "rtsp://orig/feed"  # untouched
 
 

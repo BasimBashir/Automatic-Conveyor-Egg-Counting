@@ -5,10 +5,9 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.core.runtime_config import runtime_config
-from app.core.model_cache import get_model
 from app.core.video_processor import VideoProcessor
 
 router = APIRouter(prefix="/api/video", tags=["video"])
@@ -16,7 +15,6 @@ router = APIRouter(prefix="/api/video", tags=["video"])
 
 class VideoConfigPatch(BaseModel):
     direction: Optional[Literal["tb", "lr"]] = None
-    roi_position: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 _sessions: dict[str, VideoProcessor] = {}
 
@@ -25,12 +23,9 @@ _sessions: dict[str, VideoProcessor] = {}
 async def upload_video(
     file: UploadFile = File(...),
     direction: str = Form("tb"),
-    roi_position: float | None = Form(None),
 ):
     if direction not in ("tb", "lr"):
         raise HTTPException(status_code=400, detail="direction must be 'tb' or 'lr'")
-    if roi_position is not None and not (0.0 <= roi_position <= 1.0):
-        raise HTTPException(status_code=400, detail="roi_position must be in [0,1]")
 
     snap = runtime_config.snapshot()
 
@@ -41,25 +36,17 @@ async def upload_video(
         shutil.copyfileobj(file.file, f)
 
     raw_output = os.path.join(snap["output_dir"], f"{session_id}_raw.mp4")
-    effective_roi = roi_position if roi_position is not None else snap["roi_position"]
 
-    model = get_model(snap["model_path"])
     processor = VideoProcessor(
         source=filepath,
-        model=model,
+        model_path=snap["model_path"],
         direction=direction,
-        roi_position=effective_roi,
-        confidence=snap["confidence"],
-        nms_iou=snap["nms_iou"],
-        imgsz=snap["imgsz"],
-        max_disappeared=snap["max_disappeared"],
-        max_distance=snap["max_distance"],
         save_raw_path=raw_output,
         is_stream=False,
     )
     _sessions[session_id] = processor
     return {"session_id": session_id, "filename": file.filename,
-            "direction": direction, "roi_position": effective_roi}
+            "direction": direction}
 
 
 @router.post("/{session_id}/start")
@@ -103,17 +90,15 @@ def video_status(session_id: str):
 @router.get("/{session_id}/config")
 def get_video_config(session_id: str):
     proc = _get_session(session_id)
-    return {"direction": proc.direction, "roi_position": proc.roi_position}
+    return {"direction": proc.direction}
 
 
 @router.patch("/{session_id}/config")
 def patch_video_config(session_id: str, body: VideoConfigPatch):
     proc = _get_session(session_id)
     direction = body.direction if body.direction is not None else proc.direction
-    roi_position = (body.roi_position if body.roi_position is not None
-                    else proc.roi_position)
-    proc.update_config(direction=direction, roi_position=roi_position)
-    return {"direction": proc.direction, "roi_position": proc.roi_position}
+    proc.update_config(direction=direction)
+    return {"direction": proc.direction}
 
 
 @router.get("/{session_id}/download")

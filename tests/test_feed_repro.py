@@ -31,23 +31,31 @@ def test_feed_yields_jpeg_when_buffer_populated(client):
     # configure slot 1
     r = client.put("/api/streams/1/config", json={
         "source": {"type": "rtsp", "url": "rtsp://test/feed"},
-        "direction": "lr", "roi_position": 0.5, "confidence": 0.25,
-        "enabled": False, "count_on_start": False,
+        "direction": "lr", "enabled": False, "count_on_start": False,
     })
     assert r.status_code == 200
 
     from app.routers.streams import _slots
     slot = _slots[1]
-    slot.is_playing = True
 
-    # Simulate inference having produced an annotated frame
+    # Simulate a running processor that has produced an annotated frame.
     fake_jpeg = b"\xff\xd8\xff\xe0FAKEJPEGBYTES\xff\xd9"
-    slot.set_annotated_jpeg(fake_jpeg)
+
+    class _FakeProc:
+        def __init__(self):
+            self.is_playing = True
+            self.latest_frame = fake_jpeg
+
+        def stop(self):
+            self.is_playing = False
+
+    fake = _FakeProc()
+    slot._proc = fake
 
     # Stop the slot after a short delay so generator exits
     def stop_later():
         time.sleep(0.3)
-        slot.is_playing = False
+        fake.is_playing = False
     threading.Thread(target=stop_later, daemon=True).start()
 
     with client.stream("GET", "/api/streams/1/feed") as resp:

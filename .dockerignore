@@ -10,3 +10,5 @@ docs
 app/uploads/*
 app/outputs/*
 .superpowers
+*.engine
+engine_cache/

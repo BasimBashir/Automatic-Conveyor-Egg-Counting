@@ -6,6 +6,8 @@ numpy
 pillow
 scipy
 ultralytics
+lap>=0.5.12  # linear assignment backend for ultralytics' tracker (used by ObjectCounter)
+shapely>=2.0.0  # geometry backend for ultralytics solutions.ObjectCounter line crossing
 pandas
 tqdm
 seaborn
@@ -17,7 +19,10 @@ python-multipart
 pydantic-settings
 python-dotenv
 # TensorRT export deps — pre-installed so ultralytics auto-update never runs
+# (the container's system Python is PEP-668 externally-managed, so a runtime
+# `pip install` would fail — every export dependency must be baked in here).
 onnx>=1.12.0,<2.0.0
 onnxslim>=0.1.71
 onnxruntime-gpu
 tensorrt
+nvidia-modelopt[onnx]>=0.44  # required by ultralytics' TensorRT engine export path

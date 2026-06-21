@@ -18,12 +18,4 @@ def health() -> dict:
         "gpu_available": gpu,
         "device_name": torch.cuda.get_device_name(0) if gpu else "cpu",
         "model_path": snap["model_path"],
-        "config": {
-            "confidence":     snap["confidence"],
-            "nms_iou":        snap["nms_iou"],
-            "imgsz":          snap["imgsz"],
-            "roi_position":   snap["roi_position"],
-            "max_distance":   snap["max_distance"],
-            "max_disappeared": snap["max_disappeared"],
-        },
     }

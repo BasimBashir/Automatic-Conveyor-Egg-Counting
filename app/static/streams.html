@@ -60,23 +60,13 @@
             </div>
 
             <div class="card" style="margin-top:16px;">
-                <h3 style="margin-bottom:12px; font-size:16px;">Conveyor & ROI</h3>
+                <h3 style="margin-bottom:12px; font-size:16px;">Conveyor direction</h3>
                 <div class="setting-row">
                     <label>Direction</label>
                     <div style="display:flex; gap:8px;">
                         <button class="btn btn-outline active" data-dir="tb">Top → Bottom</button>
                         <button class="btn btn-outline" data-dir="lr">Left → Right</button>
                     </div>
-                </div>
-                <div class="setting-row">
-                    <label>ROI position</label>
-                    <input type="range" id="detailRoi" min="0.05" max="0.95" step="0.01" value="0.7">
-                    <span class="range-value" id="detailRoiVal">0.70</span>
-                </div>
-                <div class="setting-row">
-                    <label>Confidence</label>
-                    <input type="range" id="detailConf" min="0.05" max="0.95" step="0.01" value="0.25">
-                    <span class="range-value" id="detailConfVal">0.25</span>
                 </div>
                 <div class="setting-row">
                     <label><input type="checkbox" id="detailEnabled"> Enabled on container boot</label>

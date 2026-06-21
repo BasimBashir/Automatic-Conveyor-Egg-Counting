@@ -17,7 +17,7 @@
 
     <div class="container">
         <h1 class="page-title">Video Processing</h1>
-        <p class="page-subtitle">Upload a video to detect, track, and count eggs crossing the ROI line</p>
+        <p class="page-subtitle">Upload a video to detect, track, and count eggs crossing the center line</p>
 
         <div class="card" id="uploadCard">
             <div style="margin-bottom:16px;">
@@ -37,7 +37,7 @@
 
         <div id="playerSection" style="display:none;">
             <div class="card" style="margin-bottom:16px;">
-                <h3 style="margin-bottom:12px; font-size:16px;">Conveyor & ROI</h3>
+                <h3 style="margin-bottom:12px; font-size:16px;">Conveyor direction</h3>
                 <div class="setting-row">
                     <label>Direction</label>
                     <div style="display:flex; gap:8px;">
@@ -45,12 +45,7 @@
                         <button type="button" class="btn btn-outline" data-pdir="lr">Left &rarr; Right</button>
                     </div>
                 </div>
-                <div class="setting-row">
-                    <label>ROI position</label>
-                    <input type="range" id="playerRoi" min="0.05" max="0.95" step="0.01" value="0.7">
-                    <span class="range-value" id="playerRoiVal">0.70</span>
-                </div>
-                <p class="page-subtitle" style="margin:0; font-size:12px;">Changes take effect immediately and reset the counter for this session.</p>
+                <p class="page-subtitle" style="margin:0; font-size:12px;">Switching direction takes effect immediately and resets the counter for this session.</p>
             </div>
 
             <div class="controls">

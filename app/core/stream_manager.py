@@ -35,8 +35,6 @@ class Source:
 class SlotConfig:
     source: Optional[Source]
     direction: Literal["tb", "lr"] = "tb"
-    roi_position: float = 0.7
-    confidence: float = 0.25
     enabled: bool = False
     count_on_start: bool = False
 
@@ -44,8 +42,6 @@ class SlotConfig:
         return {
             "source": self.source.to_dict() if self.source else None,
             "direction": self.direction,
-            "roi_position": self.roi_position,
-            "confidence": self.confidence,
             "enabled": self.enabled,
             "count_on_start": self.count_on_start,
         }
@@ -56,8 +52,6 @@ class SlotConfig:
         return cls(
             source=Source.from_dict(src) if src else None,
             direction=d.get("direction", "tb"),
-            roi_position=d.get("roi_position", 0.7),
-            confidence=d.get("confidence", 0.25),
             enabled=d.get("enabled", False),
             count_on_start=d.get("count_on_start", False),
         )
@@ -83,8 +77,7 @@ class StreamManager:
             if rtsp_url_env:
                 self._configs[1] = SlotConfig(
                     source=Source(type="rtsp", url=rtsp_url_env),
-                    direction="tb", roi_position=0.7, confidence=0.25,
-                    enabled=True, count_on_start=False,
+                    direction="tb", enabled=True, count_on_start=False,
                 )
             self._save_to_disk()
 

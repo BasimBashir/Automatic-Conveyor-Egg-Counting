@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/export", tags=["export"])
 
 class ExportRequest(BaseModel):
     half: bool = True
+    imgsz: int = 640  # must match the size ObjectCounter infers at (640 = 640x480 substream)
 
 
 class ExportStatusResponse(BaseModel):
@@ -34,7 +35,8 @@ class ExportStatusResponse(BaseModel):
 def start_tensorrt_export(body: ExportRequest = ExportRequest()) -> dict:
     """Convert the current model to a TensorRT engine in the background.
 
-    - Uses the **model_path** and **imgsz** from the live config.
+    - Uses **model_path** from the live config and **imgsz** from the request body
+      (default 640, matching the size ObjectCounter infers at).
     - Returns HTTP 202 immediately; poll GET /api/export/tensorrt for status.
     - Returns HTTP 409 if an export is already in progress.
     - When the export completes (state=DONE), a subsequent GET will
@@ -46,7 +48,7 @@ def start_tensorrt_export(body: ExportRequest = ExportRequest()) -> dict:
     snap = runtime_config.snapshot()
     started = exporter.start(
         model_path=snap["model_path"],
-        imgsz=snap["imgsz"],
+        imgsz=body.imgsz,
         half=body.half,
     )
     if not started:

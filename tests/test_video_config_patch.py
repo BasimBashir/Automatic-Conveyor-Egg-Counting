@@ -1,64 +1,44 @@
-"""Regression tests for runtime direction/ROI updates on video sessions."""
-from unittest.mock import MagicMock
+"""Regression tests for runtime direction updates on video sessions.
 
+VideoProcessor delegates counting to ultralytics ObjectCounter at model defaults;
+update_config records the new conveyor direction and requests an ObjectCounter
+rebuild (which resets the count) on the next processed frame. The counting line
+is always the frame's center line, oriented by direction — there is no ROI knob.
+"""
 import pytest
 
 from app.core.video_processor import VideoProcessor
 
 
 def _proc():
-    return VideoProcessor(
-        source="dummy.mp4", model=MagicMock(),
-        direction="tb", roi_position=0.7,
-        max_disappeared=15, max_distance=50,
-    )
+    return VideoProcessor(source="dummy.mp4", model_path="best.pt", direction="tb")
 
 
-def test_update_config_switches_direction_and_resets_counter():
+def test_update_config_switches_direction_and_requests_reset():
     proc = _proc()
-    proc.counter.set_frame_size(width=200, height=200)
-    assert proc.counter.roi_y == 140  # 200 * 0.7
-    proc.counter.total_count = 9  # simulate accumulated count
+    proc._egg_count = 9  # simulate accumulated count
 
-    proc.update_config(direction="lr", roi_position=0.3)
+    proc.update_config(direction="lr")
 
     assert proc.direction == "lr"
-    assert proc.roi_position == 0.3
-    assert proc.counter.roi_x == 60  # 200 * 0.3
-    assert proc.counter.roi_y is None
-    assert proc.counter.total_count == 0  # counter rebuilt → reset
+    assert proc._egg_count == 0             # count reset
+    assert proc._rebuild_requested is True  # ObjectCounter rebuilt next frame
 
 
-def test_update_config_preserves_frame_size_when_known():
+def test_reset_counts_zeroes_and_requests_rebuild():
     proc = _proc()
-    proc.counter.set_frame_size(width=320, height=240)
-
-    proc.update_config(direction="tb", roi_position=0.5)
-
-    assert proc.counter.frame_width == 320
-    assert proc.counter.frame_height == 240
-    assert proc.counter.roi_y == 120  # 240 * 0.5
-
-
-def test_update_config_before_frame_size_leaves_pixel_coords_unresolved():
-    proc = _proc()
-    assert proc.counter.frame_width is None
-
-    proc.update_config(direction="lr", roi_position=0.4)
-
-    assert proc.direction == "lr"
-    assert proc.counter.roi_x is None  # not resolved yet
+    proc._egg_count = 42
+    proc.reset_counts()
+    assert proc._egg_count == 0
+    assert proc._rebuild_requested is True
 
 
 def test_update_config_rejects_invalid_direction():
     proc = _proc()
     with pytest.raises(ValueError):
-        proc.update_config(direction="diagonal", roi_position=0.5)
+        proc.update_config(direction="diagonal")
 
 
-def test_update_config_rejects_out_of_range_roi():
-    proc = _proc()
+def test_constructor_rejects_invalid_direction():
     with pytest.raises(ValueError):
-        proc.update_config(direction="tb", roi_position=1.5)
-    with pytest.raises(ValueError):
-        proc.update_config(direction="tb", roi_position=-0.1)
+        VideoProcessor(source="x.mp4", model_path="best.pt", direction="diagonal")

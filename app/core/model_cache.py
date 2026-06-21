@@ -1,37 +1,60 @@
-import platform
-import pathlib
+import logging
+import os
 import threading
-import torch
 
-# Cross-platform pickle compatibility for YOLOv5 .pt files that were trained on
-# the opposite OS. Without this, Windows trying to load a Linux-trained
-# checkpoint (or vice versa) hits "cannot instantiate 'PosixPath'" or
-# "cannot instantiate 'WindowsPath'" inside torch.load's unpickler.
-if platform.system() == "Windows":
-    pathlib.PosixPath = pathlib.WindowsPath
-else:
-    pathlib.WindowsPath = pathlib.PosixPath
+from ultralytics import YOLO
 
-_cache: dict = {}
+logger = logging.getLogger("model_cache")
+
+_cache: dict[str, YOLO] = {}
 _lock = threading.Lock()
 
 
-def get_model(path: str):
-    """Return cached YOLOv5 model for *path*, loading it on first call.
+def get_model(path: str) -> YOLO:
+    """Return a cached ultralytics YOLO model for *path*, loading it on first call.
 
-    Uses double-checked locking: cache hits never acquire the lock, so
-    ongoing inference is not blocked while a new model is being loaded.
+    Used for the single-image endpoint and the live pre-counting preview. Counting
+    itself goes through ``ultralytics.solutions.ObjectCounter`` (which loads its own
+    model from the same path).
     """
     if path in _cache:
         return _cache[path]
     with _lock:
         if path not in _cache:
-            _cache[path] = torch.hub.load(
-                "ultralytics/yolov5", "custom", path=path, trust_repo=True
-            )
+            model = YOLO(path)
+            # .pt is a torch module and needs explicit device placement; exported
+            # formats (.engine/.onnx) bake the device in at export time and raise
+            # if you call .to() on them.
+            if path.endswith(".pt"):
+                try:
+                    model.to("cuda:0")
+                except Exception:
+                    # No CUDA device available — fall back to CPU silently.
+                    pass
+            _cache[path] = model
         return _cache[path]
 
 
 def preload_model(path: str) -> None:
-    """Eagerly load *path* into the cache (used at startup and on model switch)."""
-    get_model(path)
+    """Eagerly load *path* into the cache (used at startup and on model switch).
+
+    Tolerant by design: a missing or currently-unloadable weights file logs a
+    warning and returns instead of raising, so the API still boots. Inference
+    requests made before a valid model is in place will surface the load error
+    at request time.
+    """
+    if not os.path.exists(path):
+        logger.warning(
+            "Model file '%s' not found — skipping preload. "
+            "Place the trained model (e.g. best.pt) at this path before "
+            "making inference requests.", path,
+        )
+        return
+    try:
+        get_model(path)
+    except Exception as exc:  # pragma: no cover - depends on the weights file
+        logger.warning(
+            "Model '%s' could not be loaded at startup (%s). The API will boot; "
+            "inference requests will fail until a compatible model is in place.",
+            path, exc,
+        )

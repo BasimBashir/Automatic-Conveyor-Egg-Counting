@@ -8,17 +8,21 @@ services:
       - ./app/uploads:/app/app/uploads
       - ./app/outputs:/app/app/outputs
       - ./app/data:/app/app/data
+      # Persisted TensorRT engine cache — engines are built on first boot on the
+      # target GPU and reused on later boots. Keyed by GPU+TRT+precision+pt-hash.
+      - engine_cache:/app/engine_cache
     environment:
       - RTSP_URL=${RTSP_URL:-}
       - MODEL_PATH=${MODEL_PATH:-best.pt}
-      - ROI_POSITION=${ROI_POSITION:-0.7}
-      - CONFIDENCE=${CONFIDENCE:-0.25}
-      - NMS_IOU=${NMS_IOU:-0.45}
-      - IMGSZ=${IMGSZ:-640}
-      - MAX_DISTANCE=${MAX_DISTANCE:-50}
-      - MAX_DISAPPEARED=${MAX_DISAPPEARED:-15}
-      - STREAM_BATCH_INTERVAL_MS=${STREAM_BATCH_INTERVAL_MS:-33}
       - STREAM_RECONNECT_BACKOFF_S=${STREAM_RECONNECT_BACKOFF_S:-5}
+      # TensorRT engine auto-build runs on first boot by default (built for the
+      # host GPU and cached to the engine_cache volume; reused on later boots).
+      # Disable with TRT_AUTO_BUILD=0 (falls back to .pt — also CPU-safe).
+      # TRT_IMGSZ must match the size ObjectCounter infers at (640 = native
+      # 640x480 sub-stream). Raise only for a higher-resolution main stream.
+      - TRT_AUTO_BUILD=${TRT_AUTO_BUILD:-1}
+      - TRT_HALF=${TRT_HALF:-true}
+      - TRT_IMGSZ=${TRT_IMGSZ:-640}
     deploy:
       resources:
         reservations:
@@ -31,5 +35,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      # First boot on a new GPU builds the TRT engine (2-6 min on a 3090,
+      # 10-15 min on smaller cards). Cached boots are fast — but the window
+      # has to tolerate the cold case.
+      start_period: 900s
     restart: unless-stopped
+
+volumes:
+  engine_cache:

@@ -6,6 +6,8 @@ numpy
 pillow
 scipy
 ultralytics
+lap>=0.5.12  # linear assignment backend for ultralytics' tracker (used by ObjectCounter)
+shapely>=2.0.0  # geometry backend for ultralytics solutions.ObjectCounter line crossing
 pandas
 tqdm
 seaborn

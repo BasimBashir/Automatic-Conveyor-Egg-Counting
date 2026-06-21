@@ -6,3 +6,10 @@ __pycache__
 *.pyo
 *.pyd
 .superpowers
+yolo26n.pt
+yolo26s.pt
+pytest.ini
+dataset/
+.pytest_cache
+.mypy_cache
+runs/

@@ -5,11 +5,10 @@ from typing import Optional, Literal
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.core.stream_manager import StreamManager, SlotConfig, Source, SLOT_RANGE
 from app.core.stream_slot import StreamSlot
-from app.core.batch_scheduler import BatchScheduler
 from app.core.runtime_config import runtime_config
 
 
@@ -18,16 +17,13 @@ router = APIRouter(prefix="/api/streams", tags=["streams"])
 
 _manager: Optional[StreamManager] = None
 _slots: dict[int, StreamSlot] = {}
-_scheduler: Optional[BatchScheduler] = None
 
 
 def attach_runtime(manager: StreamManager,
-                   slots: dict[int, StreamSlot],
-                   scheduler: BatchScheduler) -> None:
-    global _manager, _slots, _scheduler
+                   slots: dict[int, StreamSlot]) -> None:
+    global _manager, _slots
     _manager = manager
     _slots = slots
-    _scheduler = scheduler
 
 
 class SourceBody(BaseModel):
@@ -40,8 +36,6 @@ class SourceBody(BaseModel):
 class SlotConfigBody(BaseModel):
     source: Optional[SourceBody]
     direction: Literal["tb", "lr"] = "tb"
-    roi_position: float = Field(0.7, ge=0.0, le=1.0)
-    confidence: float = Field(0.25, ge=0.0, le=1.0)
     enabled: bool = False
     count_on_start: bool = False
 
@@ -49,8 +43,6 @@ class SlotConfigBody(BaseModel):
 class SlotConfigPatch(BaseModel):
     source: Optional[SourceBody] = None
     direction: Optional[Literal["tb", "lr"]] = None
-    roi_position: Optional[float] = Field(None, ge=0.0, le=1.0)
-    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     enabled: Optional[bool] = None
     count_on_start: Optional[bool] = None
 
@@ -113,8 +105,6 @@ def put_config(slot: int, body: SlotConfigBody):
     cfg = SlotConfig(
         source=source,
         direction=body.direction,
-        roi_position=body.roi_position,
-        confidence=body.confidence,
         enabled=body.enabled,
         count_on_start=body.count_on_start,
     )

@@ -8,7 +8,7 @@ class RuntimeConfig:
     Boots from .env via pydantic-settings. Fields can be updated at runtime
     through PATCH /api/config without restarting the container.
 
-    Attribute access (rc.confidence) is supported via __getattr__ so call
+    Attribute access (rc.model_path) is supported via __getattr__ so call
     sites read naturally. Writes must go through update().
     """
 
@@ -18,16 +18,9 @@ class RuntimeConfig:
         object.__setattr__(self, "_data", {
             "rtsp_url":       boot.rtsp_url,
             "model_path":     boot.model_path,
-            "roi_position":   boot.roi_position,
-            "confidence":     boot.confidence,
-            "nms_iou":        boot.nms_iou,
-            "imgsz":          boot.imgsz,
-            "max_distance":   boot.max_distance,
-            "max_disappeared": boot.max_disappeared,
             "upload_dir":     boot.upload_dir,
             "output_dir":     boot.output_dir,
             "data_dir":       boot.data_dir,
-            "stream_batch_interval_ms":  boot.stream_batch_interval_ms,
             "stream_reconnect_backoff_s": boot.stream_reconnect_backoff_s,
         })
 

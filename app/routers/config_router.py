@@ -1,7 +1,7 @@
-from typing import Optional, Annotated
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, model_validator
 
 from app.core.runtime_config import runtime_config
 from app.core.model_cache import preload_model
@@ -12,12 +12,6 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 class ConfigResponse(BaseModel):
     rtsp_url:        str
     model_path:      str
-    roi_position:    float
-    confidence:      float
-    nms_iou:         float
-    imgsz:           int
-    max_distance:    int
-    max_disappeared: int
     upload_dir:      str
     output_dir:      str
 
@@ -25,21 +19,8 @@ class ConfigResponse(BaseModel):
 class ConfigPatch(BaseModel):
     rtsp_url:        Optional[str]   = None
     model_path:      Optional[str]   = None
-    roi_position:    Optional[Annotated[float, Field(ge=0.0, le=1.0)]] = None
-    confidence:      Optional[Annotated[float, Field(ge=0.0, le=1.0)]] = None
-    nms_iou:         Optional[Annotated[float, Field(ge=0.0, le=1.0)]] = None
-    imgsz:           Optional[Annotated[int,   Field(ge=32)]]          = None
-    max_distance:    Optional[Annotated[int,   Field(ge=1)]]           = None
-    max_disappeared: Optional[Annotated[int,   Field(ge=1)]]           = None
     upload_dir:      Optional[str]   = None
     output_dir:      Optional[str]   = None
-
-    @field_validator("imgsz")
-    @classmethod
-    def imgsz_multiple_of_32(cls, v: Optional[int]) -> Optional[int]:
-        if v is not None and v % 32 != 0:
-            raise ValueError("imgsz must be a multiple of 32 (e.g. 320, 640, 1280)")
-        return v
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "ConfigPatch":

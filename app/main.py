@@ -5,10 +5,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.core.runtime_config import runtime_config
-from app.core.model_cache import preload_model, get_model
+from app.core.model_cache import preload_model
 from app.core.stream_manager import StreamManager, SLOT_RANGE
 from app.core.stream_slot import StreamSlot
-from app.core.batch_scheduler import BatchScheduler
 from app.routers import image, video
 from app.routers.streams import router as streams_router, attach_runtime
 from app.routers.config_router import router as config_router
@@ -31,8 +30,6 @@ async def lifespan(app: FastAPI):
     slots = {
         i: StreamSlot(
             slot=i,
-            max_disappeared=snap["max_disappeared"],
-            max_distance=snap["max_distance"],
             reconnect_backoff_s=snap["stream_reconnect_backoff_s"],
         )
         for i in SLOT_RANGE
@@ -44,21 +41,11 @@ async def lifespan(app: FastAPI):
             if cfg.enabled and cfg.source is not None:
                 slots[i].start()
 
-    scheduler = BatchScheduler(
-        slots=slots,
-        model_provider=lambda: get_model(runtime_config.snapshot()["model_path"]),
-        batch_interval_ms=snap["stream_batch_interval_ms"],
-        imgsz=snap["imgsz"],
-        nms_iou=snap["nms_iou"],
-    )
-    scheduler.start()
-
-    attach_runtime(manager=mgr, slots=slots, scheduler=scheduler)
+    attach_runtime(manager=mgr, slots=slots)
 
     try:
         yield
     finally:
-        scheduler.stop()
         for slot in slots.values():
             slot.stop()
 
@@ -68,9 +55,11 @@ app = FastAPI(
     version="2.1.0",
     description=(
         "Production-grade egg counting API. "
-        "Supports up to 10 concurrent RTSP/video streams batched through a "
-        "single shared YOLOv8 model, plus image and one-shot video uploads. "
-        "All inference parameters are tunable at runtime via PATCH /api/config."
+        "Supports up to 10 concurrent RTSP/video streams, each counted by its "
+        "own ultralytics ObjectCounter (detection + tracking + line-crossing), "
+        "plus image and one-shot video uploads. Conveyor direction (top->bottom "
+        "or left->right) and ROI position are configurable per source. "
+        "Inference parameters are tunable at runtime via PATCH /api/config."
     ),
     lifespan=lifespan,
 )

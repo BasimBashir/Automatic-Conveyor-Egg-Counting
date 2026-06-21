@@ -1,6 +1,6 @@
 # Automated Egg Counting System
 
-End-to-end computer vision API for detecting and counting eggs on conveyor belts. Built on **YOLOv8**. Supports image detection, single-video processing, and **up to 10 concurrent RTSP cameras or video files** through one shared model in one container. Each conveyor (per stream or per upload) can be configured **top → bottom** or **left → right**.
+End-to-end computer vision API for detecting and counting eggs on conveyor belts. Built on **ultralytics YOLO**. Supports image detection, single-video processing, and **up to 10 concurrent RTSP cameras or video files** in one container — each counted by its own **ultralytics `ObjectCounter`** (detection + tracking + line-crossing). Each conveyor (per stream or per upload) can be configured **top → bottom** or **left → right**.
 
 This README is structured for integrators: people building their own desktop apps, dashboards, mobile clients, or line-control HMIs against this service.
 
@@ -31,9 +31,9 @@ Three operational modes share one FastAPI service:
 |------|--------------|
 | **Image** | One-shot detection on an uploaded image. Returns the annotated image + count. |
 | **Video** | One-shot processing of an uploaded video file. Polled MJPEG live preview, H.264 download. |
-| **Streams** | Up to **10 fixed slots**. Each slot can carry an RTSP URL or an uploaded video file. One batched inference call serves all 10 slots; results are returned independently per slot. Slot config (URL, conveyor direction, ROI, confidence) is persisted to disk and survives container restarts. |
+| **Streams** | Up to **10 fixed slots**. Each slot can carry an RTSP URL or an uploaded video file and runs its own `ObjectCounter` (independent detection, tracking, and counting). Slot config (URL, conveyor direction, enable/count-on-start flags) is persisted to disk and survives container restarts. |
 
-Detection: YOLOv8 (single-class egg model). Tracking: bbox-aware centroid tracker with Hungarian assignment. Counting: per-direction line-crossing logic.
+Detection + tracking + counting are delegated end-to-end to ultralytics **`solutions.ObjectCounter`** (single-class egg model) at model defaults. The conveyor direction orients the counter's region line — always the frame's center line — and objects are counted as they cross it in the travel direction.
 
 ---
 
@@ -52,9 +52,12 @@ Pre-built images on Docker Hub (`basim123/egg-counter`):
 git clone https://github.com/BasimBashir/Automated-Egg-Counting-System.git
 cd Automated-Egg-Counting-System
 docker compose up -d
+docker compose logs -f          # watch the first-boot TensorRT build
 ```
 
-Opens on `http://localhost:5590`. The `app/data` volume persists slot configuration across restarts.
+Opens on `http://localhost:5590`. The `app/data` volume persists slot configuration, and the `engine_cache` volume persists the TensorRT engine, across restarts.
+
+**First boot** builds a TensorRT engine for the host GPU (2–6 min on an RTX 3090; longer on smaller cards), caches it to the `engine_cache` volume, and switches `MODEL_PATH` to it. Later boots reuse the cache and start in seconds. Disable with `TRT_AUTO_BUILD=0` (runs the `.pt` directly; also CPU-safe). See [Deployment → TensorRT](#deployment) for details.
 
 ### Manual docker run — GPU
 
@@ -68,12 +71,12 @@ docker run -d \
   -v "$(pwd)/app/uploads:/app/app/uploads" \
   -v "$(pwd)/app/outputs:/app/app/outputs" \
   -v "$(pwd)/app/data:/app/app/data" \
-  -e MODEL_PATH=best.pt \
+  -v egg_engine_cache:/app/engine_cache \
   --restart unless-stopped \
   basim123/egg-counter:latest
 ```
 
-PowerShell:
+The `egg_engine_cache` named volume holds the TensorRT engine built on first boot, so it survives `docker rm` / re-creation. PowerShell:
 
 ```powershell
 docker run -d `
@@ -83,7 +86,7 @@ docker run -d `
   -v "${PWD}/app/uploads:/app/app/uploads" `
   -v "${PWD}/app/outputs:/app/app/outputs" `
   -v "${PWD}/app/data:/app/app/data" `
-  -e MODEL_PATH=best.pt `
+  -v egg_engine_cache:/app/engine_cache `
   --restart unless-stopped `
   basim123/egg-counter:latest
 ```
@@ -104,7 +107,7 @@ docker run -d \
   basim123/egg-counter:cpu
 ```
 
-> CPU inference is slower; batched 10-stream throughput drops accordingly.
+> CPU inference is slower; per-stream throughput drops accordingly, and the TensorRT auto-build is skipped (the `.pt` runs directly).
 
 ### First-boot RTSP seeding (optional)
 
@@ -152,14 +155,14 @@ Upload an image → annotated image + count.
 
 ### Video (`/video.html`)
 
-Upload an MP4/AVI/MOV/MKV → live MJPEG preview → optionally enable counting → download H.264 result. A **Conveyor direction** toggle (Top→Bottom / Left→Right) is on the upload card; the ROI slider applies along the chosen axis.
+Upload an MP4/AVI/MOV/MKV → live MJPEG preview → optionally enable counting → download H.264 result. A **Conveyor direction** toggle (Top→Bottom / Left→Right) is on the upload card; the counting line is the frame's center line, oriented by the chosen direction.
 
 ### Streams (`/streams.html`)
 
 10-slot grid wall + drill-down.
 
 1. **Grid wall** — overview of all 10 slots. Each tile shows status, count, FPS, direction arrow, and a thumbnail of the live feed.
-2. **Click a tile** to drill in. Pick a source (RTSP URL **or** upload a video file), pick direction, set ROI and confidence, optionally check **Enabled on boot** and **Auto-count on start**. Click **Save settings**, then **Connect**, then **Start Counting**.
+2. **Click a tile** to drill in. Pick a source (RTSP URL **or** upload a video file), pick conveyor direction, optionally check **Enabled on boot** and **Auto-count on start**. Click **Save settings**, then **Connect**, then **Start Counting**.
 
 Grid polls `/api/streams/status` every second.
 
@@ -167,12 +170,14 @@ Grid polls `/api/streams/status` every second.
 
 ## REST API reference
 
+> **Building a client on top of the container?** See **[API.md](API.md)** — a standalone, integration-focused reference (every endpoint, request/response shapes, MJPEG consumption, and curl/Python/JS examples) written for developers running the published Docker image without the source repo.
+
 Base URL: `http://<host>:5590`. All endpoints return JSON unless marked MJPEG / image. Interactive Swagger UI at **`http://localhost:5590/docs`**.
 
 ### Conventions
 
 - Slots are integers `1..10`. Other values → `404`.
-- `direction` is `"tb"` (top → bottom) or `"lr"` (left → right). `roi_position` is a float in `[0, 1]` interpreted as a fraction along the direction-of-travel axis.
+- `direction` is `"tb"` (top → bottom) or `"lr"` (left → right). It orients the counting line, which is always the frame's center line. There is no ROI/confidence knob — counting runs at ObjectCounter's model defaults.
 - All JSON bodies use `Content-Type: application/json`. Multipart bodies use `multipart/form-data`.
 - MJPEG endpoints return `multipart/x-mixed-replace; boundary=frame`. Browsers and Electron consume them with `<img src="…">`.
 - Common error codes: `400` (validation), `404` (unknown slot/session), `503` (manager not ready during boot).
@@ -183,7 +188,7 @@ Base URL: `http://<host>:5590`. All endpoints return JSON unless marked MJPEG / 
 
 #### `GET /health`
 
-Service health, GPU availability, current model path, and the global runtime config snapshot. Use as a liveness probe.
+Service health, GPU availability, and current model path. Use as a liveness probe.
 
 **Returns (`200`):**
 ```json
@@ -191,11 +196,7 @@ Service health, GPU availability, current model path, and the global runtime con
   "status": "ok",
   "gpu_available": true,
   "device_name": "NVIDIA T4",
-  "model_path": "best.pt",
-  "config": {
-    "confidence": 0.25, "nms_iou": 0.45, "imgsz": 640,
-    "roi_position": 0.7, "max_distance": 40, "max_disappeared": 50
-  }
+  "model_path": "best.pt"
 }
 ```
 
@@ -255,44 +256,41 @@ Upload a video file. Creates a session keyed by the returned `session_id`. The f
 **Body** (`multipart/form-data`):
 - `file` — video (MP4 / AVI / MOV / MKV).
 - `direction` — `"tb"` or `"lr"`. Default `"tb"`.
-- `roi_position` — float `[0, 1]`. Default = global `ROI_POSITION`.
 
 **Returns (`200`):**
 ```json
-{ "session_id": "7f83de97", "filename": "input.mp4",
-  "direction": "tb", "roi_position": 0.7 }
+{ "session_id": "7f83de97", "filename": "input.mp4", "direction": "tb" }
 ```
 
-**Status:** `200` on success; `400` for invalid `direction` or `roi_position`.
+**Status:** `200` on success; `400` for invalid `direction`.
 
 **Example:**
 ```bash
 curl -X POST http://localhost:5590/api/video/upload \
-  -F file=@conveyor.mp4 -F direction=lr -F roi_position=0.5
+  -F file=@conveyor.mp4 -F direction=lr
 ```
 
 #### `GET /api/video/{session_id}/config`
 
-Return the current conveyor direction and ROI of the session.
+Return the current conveyor direction of the session.
 
 **Returns (`200`):**
 ```json
-{ "direction": "tb", "roi_position": 0.7 }
+{ "direction": "tb" }
 ```
 
 **Status:** `404` if session unknown.
 
 #### `PATCH /api/video/{session_id}/config`
 
-Change direction and/or ROI **after** upload. Safe to call before or during playback; rebuilds the underlying counter, which resets `egg_count` for this session.
+Change direction **after** upload. Safe to call before or during playback; rebuilds the underlying ObjectCounter, which resets `egg_count` for this session.
 
-**Body** (JSON, partial):
+**Body** (JSON):
 ```json
-{ "direction": "lr", "roi_position": 0.4 }
+{ "direction": "lr" }
 ```
-Either or both fields may be omitted to keep the current value.
 
-**Returns (`200`):** the new `{direction, roi_position}` echo.
+**Returns (`200`):** the new `{direction}` echo.
 
 **Status:** `200` on success; `400` for invalid values; `404` if session unknown.
 
@@ -300,7 +298,7 @@ Either or both fields may be omitted to keep the current value.
 ```bash
 curl -X PATCH http://localhost:5590/api/video/7f83de97/config \
   -H 'Content-Type: application/json' \
-  -d '{"direction":"lr","roi_position":0.4}'
+  -d '{"direction":"lr"}'
 ```
 
 #### `POST /api/video/{session_id}/start`
@@ -337,7 +335,7 @@ Per-session runtime snapshot. Poll this once a second from a client to drive a p
   "is_playing": true, "is_counting": false, "egg_count": 0,
   "frame_num": 142, "total_frames": 1800, "fps": 27.4,
   "is_complete": false, "is_stream": false,
-  "direction": "tb", "roi_position": 0.7, "error": null
+  "direction": "tb", "error": null
 }
 ```
 
@@ -381,7 +379,7 @@ Aggregate runtime for all 10 slots in one round-trip. **This is the polling endp
 ```json
 {
   "1": { "is_connected": true, "is_counting": true, "egg_count": 312,
-         "fps": 27.4, "direction": "tb", "roi_position": 0.7, "error": null,
+         "fps": 27.4, "direction": "tb", "error": null,
          "is_stream": true, "is_complete": false,
          "frame_num": 18420, "total_frames": 0 },
   "2": { ... },
@@ -414,8 +412,8 @@ Single slot — both config and runtime.
 ```json
 {
   "slot": 3,
-  "config": { "source": {...}, "direction": "tb", "roi_position": 0.7,
-              "confidence": 0.25, "enabled": true, "count_on_start": false } | null,
+  "config": { "source": {...}, "direction": "tb",
+              "enabled": true, "count_on_start": false } | null,
   "runtime": { ...same shape as in /api/streams/status... }
 }
 ```
@@ -437,8 +435,6 @@ Set the slot's **full** config. Replaces any prior config and persists to `strea
 {
   "source": { "type": "rtsp", "url": "rtsp://user:pw@10.0.0.13:554/cam" },
   "direction": "lr",
-  "roi_position": 0.5,
-  "confidence": 0.3,
   "enabled": true,
   "count_on_start": true
 }
@@ -457,7 +453,7 @@ Or a file source:
 
 **Returns (`200`):** the resulting config object.
 
-**Status:** `400` on validation errors (bad direction / out-of-range floats); `404` if slot ∉ 1..10.
+**Status:** `400` on validation errors (bad direction); `404` if slot ∉ 1..10.
 
 **Example:**
 ```bash
@@ -465,8 +461,7 @@ curl -X PUT http://localhost:5590/api/streams/3/config \
   -H 'Content-Type: application/json' \
   -d '{
     "source": {"type": "rtsp", "url": "rtsp://user:pw@10.0.0.13:554/cam"},
-    "direction": "lr", "roi_position": 0.5, "confidence": 0.3,
-    "enabled": true, "count_on_start": true
+    "direction": "lr", "enabled": true, "count_on_start": true
   }'
 ```
 
@@ -476,7 +471,7 @@ Partial update. Any field omitted from the body keeps its current value. Setting
 
 **Body** (any subset):
 ```json
-{ "roi_position": 0.6, "confidence": 0.35 }
+{ "direction": "lr", "count_on_start": true }
 ```
 
 **Returns (`200`):** the full new config.
@@ -556,11 +551,7 @@ Return current live settings.
 ```json
 {
   "rtsp_url": "", "model_path": "best.pt",
-  "roi_position": 0.7, "confidence": 0.25, "nms_iou": 0.45,
-  "imgsz": 640, "max_distance": 40, "max_disappeared": 50,
-  "upload_dir": "app/uploads", "output_dir": "app/outputs",
-  "data_dir": "app/data",
-  "stream_batch_interval_ms": 33, "stream_reconnect_backoff_s": 5.0
+  "upload_dir": "app/uploads", "output_dir": "app/outputs"
 }
 ```
 
@@ -576,7 +567,7 @@ Update settings without restarting. Changing `model_path` triggers a synchronous
 ```bash
 curl -X PATCH http://localhost:5590/api/config \
   -H 'Content-Type: application/json' \
-  -d '{"confidence": 0.35, "imgsz": 800}'
+  -d '{"model_path": "best.engine"}'
 ```
 
 ---
@@ -631,19 +622,20 @@ For a single focused slot, poll `GET /api/streams/{slot}/status` at the same cad
 ### Production tips
 
 - Put the service behind a reverse proxy (Nginx example below) and terminate TLS there.
-- For aggressive deployments, set `STREAM_BATCH_INTERVAL_MS` lower (e.g. `16` ≈ 60 fps cap) if your GPU has headroom.
+- Each active stream runs its own `ObjectCounter` (its own inference + tracker), so GPU load scales with the number of active streams — sized for an RTX 3090 with the TensorRT engine. Keep an eye on GPU utilisation as you approach 10 concurrent streams.
+- On first boot on a new GPU the container builds a TensorRT engine and caches it to the `engine_cache` volume (keyed by GPU + TRT version + precision + model hash); later boots reuse it. Disable with `TRT_AUTO_BUILD=0`.
 - The model is loaded once at startup. Switching `model_path` at runtime via `PATCH /api/config` reloads it synchronously and rolls back on failure.
 
 ---
 
 ## Conveyor direction
 
-| Direction | ROI line | `roi_position = 0.7` means | Counts when |
-|-----------|----------|-----------------------------|-------------|
-| `tb` (top → bottom) | Horizontal | 70 % from the top of the frame | Centroid moves down across the line |
-| `lr` (left → right) | Vertical | 70 % from the left of the frame | Centroid moves rightwards across the line |
+| Direction | Counting line | Counts when |
+|-----------|---------------|-------------|
+| `tb` (top → bottom) | Horizontal, frame center (y = height / 2) | A tracked object crosses the line moving **down** |
+| `lr` (left → right) | Vertical, frame center (x = width / 2) | A tracked object crosses the line moving **right** |
 
-Direction is fixed per slot / per video session — it cannot flip mid-stream (the counter would lose state). For a belt that runs both ways, use two slots pointed at the same camera with different directions and ROI positions.
+The counting line is always the frame's center line — counting runs at ultralytics ObjectCounter's model defaults, so there is no ROI or confidence knob. Direction is fixed per slot / per video session; it cannot flip mid-stream (the counter would lose state). For a belt that runs both ways, use two slots pointed at the same camera with different directions.
 
 ---
 
@@ -653,18 +645,14 @@ Direction is fixed per slot / per video session — it cannot flip mid-stream (t
 python detect_and_count.py image.jpg                       # detect
 python detect_and_count.py video.mp4                       # count (default direction tb)
 python detect_and_count.py video.mp4 --direction lr        # left→right
-python detect_and_count.py rtsp://user:pw@host:554/cam --conf 0.3 --roi 0.5
+python detect_and_count.py rtsp://user:pw@host:554/cam --direction lr
 ```
 
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `input` | (required) | Path to image, video, or RTSP URL |
-| `--model` | `best.pt` | YOLOv8 weights |
-| `--conf` | `0.25` | Detection confidence threshold |
+| `--model` | `best.pt` | ultralytics YOLO weights (`.pt` or `.engine`) |
 | `--direction` | `tb` | `tb` (top → bottom) or `lr` (left → right) |
-| `--roi` | `0.7` | ROI position along direction-of-travel (0..1) |
-| `--max-distance` | `40` | Tracker match max pixel distance |
-| `--max-disappeared` | `50` | Frames before dropping a lost track |
 | `--save` | none | Output path for annotated result |
 
 ---
@@ -701,20 +689,16 @@ server {
 
 ## Configuration reference
 
-All settings are env vars, set in `.env`, or patched live via `PATCH /api/config`:
+Settings are env vars set in `.env` (or the shell / compose). `MODEL_PATH` and `RTSP_URL` can also be patched live via `PATCH /api/config`:
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `MODEL_PATH` | `best.pt` | YOLOv8 weights file |
+| `MODEL_PATH` | `best.pt` | ultralytics YOLO weights (`.pt` or `.engine`). Promoted to the built `.engine` on first boot when `TRT_AUTO_BUILD=1`. |
 | `RTSP_URL` | (empty) | First-boot only — seeds slot 1 if `streams.json` is absent |
-| `ROI_POSITION` | `0.7` | Default ROI fraction (used when a slot doesn't specify) |
-| `CONFIDENCE` | `0.25` | Default detection threshold |
-| `NMS_IOU` | `0.45` | NMS IoU threshold |
-| `IMGSZ` | `640` | YOLOv8 inference image size (multiple of 32) |
-| `MAX_DISTANCE` | `40` | Tracker centroid match distance |
-| `MAX_DISAPPEARED` | `50` | Frames before dropping a lost track |
-| `STREAM_BATCH_INTERVAL_MS` | `33` | Batch scheduler tick (~30 fps cap) |
 | `STREAM_RECONNECT_BACKOFF_S` | `5` | Seconds between RTSP reconnect attempts |
+| `TRT_AUTO_BUILD` | `1` | Build a TensorRT engine for the host GPU on first boot and cache it (set `0` to run the `.pt` directly / on CPU) |
+| `TRT_HALF` | `true` | Build the engine in FP16 |
+| `TRT_IMGSZ` | `640` | Engine input size — must match the size `ObjectCounter` infers at |
 
 ---
 
@@ -723,21 +707,18 @@ All settings are env vars, set in `.env`, or patched live via `PATCH /api/config
 ```
 Automated-Egg-Counting-System/
 ├── app/
-│   ├── main.py                          # FastAPI entrypoint; scheduler lifecycle
+│   ├── main.py                          # FastAPI entrypoint; per-slot lifecycle
 │   ├── config.py                        # Pydantic settings
 │   ├── core/
-│   │   ├── detector.py                  # YOLOv8 inference wrapper
+│   │   ├── detector.py                  # ultralytics YOLO inference (image/preview)
 │   │   ├── model_cache.py               # Singleton model loader
-│   │   ├── tracker.py                   # Bbox-aware centroid tracker
-│   │   ├── counter.py                   # Tracker-based direction-aware counter
-│   │   ├── line_counter.py              # Trackerless direction-aware counter
-│   │   ├── annotator.py                 # Frame annotation
-│   │   ├── video_processor.py           # Single-video processor (used by /api/video)
+│   │   ├── counting.py                  # ObjectCounter region builder (tb/lr) + box extractor
+│   │   ├── annotator.py                 # Frame annotation (bboxes + region line)
+│   │   ├── video_processor.py           # Per-source ObjectCounter loop (video + each stream slot)
 │   │   ├── stream_manager.py            # 10-slot registry + streams.json persistence
-│   │   ├── stream_slot.py               # Per-slot capture thread + state
-│   │   ├── batch_scheduler.py           # Single batched-inference thread
+│   │   ├── stream_slot.py               # Per-slot wrapper around a VideoProcessor
 │   │   ├── runtime_config.py            # Live runtime config
-│   │   └── exporter.py                  # TensorRT export
+│   │   └── exporter.py                  # TensorRT export (/api/export)
 │   ├── routers/
 │   │   ├── image.py                     # /api/image
 │   │   ├── video.py                     # /api/video (single-video)
@@ -751,10 +732,12 @@ Automated-Egg-Counting-System/
 │   ├── data/                            # streams.json + slot-owned files (volume-mounted)
 │   ├── uploads/, outputs/               # video upload + H.264 output dirs
 ├── detect_and_count.py                  # Standalone CLI
-├── best.pt                              # YOLOv8 weights
+├── best.pt                              # ultralytics YOLO weights (retrained yolo26s)
+├── docker-entrypoint.sh                 # TensorRT engine auto-build on first boot
 ├── tests/                               # pytest suite
 ├── requirements.txt / requirements-cpu.txt / requirements-dev.txt
 ├── Dockerfile / Dockerfile.cpu / docker-compose.yml
+├── API.md                               # standalone client-integration API reference
 └── README.md
 ```
 

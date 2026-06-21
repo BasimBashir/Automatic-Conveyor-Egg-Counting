@@ -13,10 +13,6 @@ const detailFps = document.getElementById("detailFps");
 const detailUrl = document.getElementById("detailUrl");
 const detailFile = document.getElementById("detailFile");
 const detailFilename = document.getElementById("detailFilename");
-const detailRoi = document.getElementById("detailRoi");
-const detailRoiVal = document.getElementById("detailRoiVal");
-const detailConf = document.getElementById("detailConf");
-const detailConfVal = document.getElementById("detailConfVal");
 const detailEnabled = document.getElementById("detailEnabled");
 const detailCountOnStart = document.getElementById("detailCountOnStart");
 
@@ -115,8 +111,6 @@ function populateDetail(data) {
     if (cfg) {
         currentDirection = cfg.direction || "tb";
         currentSourceType = cfg.source ? cfg.source.type : "rtsp";
-        detailRoi.value = cfg.roi_position ?? 0.7;
-        detailConf.value = cfg.confidence ?? 0.25;
         detailEnabled.checked = !!cfg.enabled;
         detailCountOnStart.checked = !!cfg.count_on_start;
         detailUrl.value = (cfg.source && cfg.source.type === "rtsp") ? (cfg.source.url || "") : "";
@@ -124,15 +118,11 @@ function populateDetail(data) {
     } else {
         currentDirection = "tb";
         currentSourceType = "rtsp";
-        detailRoi.value = 0.7;
-        detailConf.value = 0.25;
         detailEnabled.checked = false;
         detailCountOnStart.checked = false;
         detailUrl.value = "";
         detailFilename.textContent = "";
     }
-    detailRoiVal.textContent = parseFloat(detailRoi.value).toFixed(2);
-    detailConfVal.textContent = parseFloat(detailConf.value).toFixed(2);
     document.querySelectorAll("[data-dir]").forEach(b => {
         b.classList.toggle("active", b.dataset.dir === currentDirection);
     });
@@ -188,13 +178,6 @@ document.querySelectorAll("[data-src-tab]").forEach(btn => {
     });
 });
 
-detailRoi.addEventListener("input", () => {
-    detailRoiVal.textContent = parseFloat(detailRoi.value).toFixed(2);
-});
-detailConf.addEventListener("input", () => {
-    detailConfVal.textContent = parseFloat(detailConf.value).toFixed(2);
-});
-
 btnSave.addEventListener("click", async () => {
     if (currentSlot === null) return;
     if (currentSourceType === "file" && detailFile.files[0]) {
@@ -204,8 +187,6 @@ btnSave.addEventListener("click", async () => {
     }
     const patch = {
         direction: currentDirection,
-        roi_position: parseFloat(detailRoi.value),
-        confidence: parseFloat(detailConf.value),
         enabled: detailEnabled.checked,
         count_on_start: detailCountOnStart.checked,
     };
